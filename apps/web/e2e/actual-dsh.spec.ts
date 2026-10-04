@@ -30,7 +30,8 @@ test('actual DSH browser flow: takeover, history, prompt, file, model, queue, ap
   await expect(input).toBeEnabled();
   await input.fill('Actual browser prompt to the real DSH runtime.');
   await page.getByRole('button', { name: '发送消息', exact: true }).click();
-  await expect(page.locator('.user-message')).toContainText('Actual browser prompt');
+  // DSH may append separate runtime-context user records; identify the submitted message.
+  await expect(page.locator('.user-message').filter({ hasText: 'Actual browser prompt' })).toHaveCount(1);
   await expect(
     page.locator('.message-text').filter({ hasText: 'REAL_DSH_PIPELINE_OK' }).first(),
   ).toBeVisible({ timeout: 20000 });

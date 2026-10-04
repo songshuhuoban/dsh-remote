@@ -9,6 +9,29 @@ env:
   # No job may opt in to a paid or operator-configured model provider.
   LIVE_PROVIDER_E2E: '0'
 jobs:
+  prototype-flow-and-visuals:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - run: bun install --frozen-lockfile
+      - run: node --test docs/prototype/model.test.mjs docs/prototype/dom.test.mjs docs/prototype/style.test.mjs
+      - run: bunx playwright install --with-deps chromium
+      - run: node node_modules/@playwright/test/cli.js test -c docs/prototype/playwright.config.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dsh-native-prototype-browser-evidence
+          path: |
+            docs/prototype/evidence/browser-artifacts
+            docs/prototype/evidence/browser-results.json
+          if-no-files-found: warn
   types-and-tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

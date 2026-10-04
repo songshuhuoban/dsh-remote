@@ -1,0 +1,612 @@
+{
+  "config": {
+    "argv": [
+      "/opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin/node",
+      "/workspace/scratch/a97108fa7443/dsh-remote/node_modules/@playwright/test/cli.js",
+      "test",
+      "-c",
+      "docs/prototype/playwright.config.mjs",
+      "--list"
+    ],
+    "configFile": "/workspace/scratch/a97108fa7443/dsh-remote/docs/prototype/playwright.config.mjs",
+    "rootDir": "/workspace/scratch/a97108fa7443/dsh-remote/docs/prototype",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {},
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/workspace/scratch/a97108fa7443/dsh-remote/docs/prototype/evidence/browser-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "desktop-light",
+        "name": "desktop-light",
+        "testDir": "/workspace/scratch/a97108fa7443/dsh-remote/docs/prototype",
+        "testIgnore": [],
+        "testMatch": [
+          "walkthrough.spec.mjs"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/workspace/scratch/a97108fa7443/dsh-remote/docs/prototype/evidence/browser-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "mobile-light",
+        "name": "mobile-light",
+        "testDir": "/workspace/scratch/a97108fa7443/dsh-remote/docs/prototype",
+        "testIgnore": [],
+        "testMatch": [
+          "walkthrough.spec.mjs"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/workspace/scratch/a97108fa7443/dsh-remote/docs/prototype/evidence/browser-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "desktop-dark",
+        "name": "desktop-dark",
+        "testDir": "/workspace/scratch/a97108fa7443/dsh-remote/docs/prototype",
+        "testIgnore": [],
+        "testMatch": [
+          "walkthrough.spec.mjs"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/workspace/scratch/a97108fa7443/dsh-remote/docs/prototype/evidence/browser-artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "mobile-dark",
+        "name": "mobile-dark",
+        "testDir": "/workspace/scratch/a97108fa7443/dsh-remote/docs/prototype",
+        "testIgnore": [],
+        "testMatch": [
+          "walkthrough.spec.mjs"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "docs/prototype/evidence/browser-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.63.0",
+    "workers": 1,
+    "webServer": {
+      "command": "node docs/prototype/server.mjs",
+      "cwd": "/workspace/scratch/a97108fa7443/dsh-remote/",
+      "url": "http://127.0.0.1:4179",
+      "reuseExistingServer": false,
+      "timeout": 10000
+    }
+  },
+  "suites": [
+    {
+      "title": "walkthrough.spec.mjs",
+      "file": "walkthrough.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "DSH shell, responsive settings, keyboard close, instance online states",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-light",
+              "projectName": "desktop-light",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-fce1d14e9a75ad3e4caa",
+          "file": "walkthrough.spec.mjs",
+          "line": 12,
+          "column": 1
+        },
+        {
+          "title": "writer ACK, message, steer, queue edit/delete, approval and stale history",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-light",
+              "projectName": "desktop-light",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-dff118058d64d5728690",
+          "file": "walkthrough.spec.mjs",
+          "line": 13,
+          "column": 1
+        },
+        {
+          "title": "timeout exits pendingACK, canceled mutation stays indeterminate, replay does not resend",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-light",
+              "projectName": "desktop-light",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-11cc158d1941d02e26d4",
+          "file": "walkthrough.spec.mjs",
+          "line": 14,
+          "column": 1
+        },
+        {
+          "title": "attachment failure, remove, retry and cold session resume",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-light",
+              "projectName": "desktop-light",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-c2833b49c85735d39d3e",
+          "file": "walkthrough.spec.mjs",
+          "line": 15,
+          "column": 1
+        },
+        {
+          "title": "GitHub multi-repo authorization, explicit host paths, verification, reference preview",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-light",
+              "projectName": "desktop-light",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-825af59730f9fbbcadad",
+          "file": "walkthrough.spec.mjs",
+          "line": 16,
+          "column": 1
+        },
+        {
+          "title": "pairing can be interrupted, navigation returns, current-device revocation and sign-in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-light",
+              "projectName": "desktop-light",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-b9d821e80d1755238f3b",
+          "file": "walkthrough.spec.mjs",
+          "line": 17,
+          "column": 1
+        },
+        {
+          "title": "DSH shell, responsive settings, keyboard close, instance online states",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-light",
+              "projectName": "mobile-light",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-086eb6920f5de03a94ef",
+          "file": "walkthrough.spec.mjs",
+          "line": 12,
+          "column": 1
+        },
+        {
+          "title": "writer ACK, message, steer, queue edit/delete, approval and stale history",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-light",
+              "projectName": "mobile-light",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-5cc63d27a70fa8a4451d",
+          "file": "walkthrough.spec.mjs",
+          "line": 13,
+          "column": 1
+        },
+        {
+          "title": "timeout exits pendingACK, canceled mutation stays indeterminate, replay does not resend",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-light",
+              "projectName": "mobile-light",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-a259d15cd11a1387dcac",
+          "file": "walkthrough.spec.mjs",
+          "line": 14,
+          "column": 1
+        },
+        {
+          "title": "attachment failure, remove, retry and cold session resume",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-light",
+              "projectName": "mobile-light",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-56ea9d1d09b83c830ce9",
+          "file": "walkthrough.spec.mjs",
+          "line": 15,
+          "column": 1
+        },
+        {
+          "title": "GitHub multi-repo authorization, explicit host paths, verification, reference preview",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-light",
+              "projectName": "mobile-light",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-9a9ffcf52056212193f5",
+          "file": "walkthrough.spec.mjs",
+          "line": 16,
+          "column": 1
+        },
+        {
+          "title": "pairing can be interrupted, navigation returns, current-device revocation and sign-in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-light",
+              "projectName": "mobile-light",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-c2027f2b323825b2bff6",
+          "file": "walkthrough.spec.mjs",
+          "line": 17,
+          "column": 1
+        },
+        {
+          "title": "DSH shell, responsive settings, keyboard close, instance online states",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-dark",
+              "projectName": "desktop-dark",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-ff237841c135009b081a",
+          "file": "walkthrough.spec.mjs",
+          "line": 12,
+          "column": 1
+        },
+        {
+          "title": "writer ACK, message, steer, queue edit/delete, approval and stale history",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-dark",
+              "projectName": "desktop-dark",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-46cfff6fd0d0d76fcb33",
+          "file": "walkthrough.spec.mjs",
+          "line": 13,
+          "column": 1
+        },
+        {
+          "title": "timeout exits pendingACK, canceled mutation stays indeterminate, replay does not resend",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-dark",
+              "projectName": "desktop-dark",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-539b584f4ca998fe1c85",
+          "file": "walkthrough.spec.mjs",
+          "line": 14,
+          "column": 1
+        },
+        {
+          "title": "attachment failure, remove, retry and cold session resume",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-dark",
+              "projectName": "desktop-dark",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-7d8eac393d186079c536",
+          "file": "walkthrough.spec.mjs",
+          "line": 15,
+          "column": 1
+        },
+        {
+          "title": "GitHub multi-repo authorization, explicit host paths, verification, reference preview",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-dark",
+              "projectName": "desktop-dark",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-47c8783a0e3893fb7dbd",
+          "file": "walkthrough.spec.mjs",
+          "line": 16,
+          "column": 1
+        },
+        {
+          "title": "pairing can be interrupted, navigation returns, current-device revocation and sign-in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-dark",
+              "projectName": "desktop-dark",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-f72e53c124dea0117fe2",
+          "file": "walkthrough.spec.mjs",
+          "line": 17,
+          "column": 1
+        },
+        {
+          "title": "DSH shell, responsive settings, keyboard close, instance online states",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-dark",
+              "projectName": "mobile-dark",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-ea97ab8b9a656602b98e",
+          "file": "walkthrough.spec.mjs",
+          "line": 12,
+          "column": 1
+        },
+        {
+          "title": "writer ACK, message, steer, queue edit/delete, approval and stale history",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-dark",
+              "projectName": "mobile-dark",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-176eb4cad66ea54698d3",
+          "file": "walkthrough.spec.mjs",
+          "line": 13,
+          "column": 1
+        },
+        {
+          "title": "timeout exits pendingACK, canceled mutation stays indeterminate, replay does not resend",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-dark",
+              "projectName": "mobile-dark",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-a550b73a99ae132c22db",
+          "file": "walkthrough.spec.mjs",
+          "line": 14,
+          "column": 1
+        },
+        {
+          "title": "attachment failure, remove, retry and cold session resume",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-dark",
+              "projectName": "mobile-dark",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-9341b145029fb46f30a2",
+          "file": "walkthrough.spec.mjs",
+          "line": 15,
+          "column": 1
+        },
+        {
+          "title": "GitHub multi-repo authorization, explicit host paths, verification, reference preview",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-dark",
+              "projectName": "mobile-dark",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-b5b803770f9dcd82b967",
+          "file": "walkthrough.spec.mjs",
+          "line": 16,
+          "column": 1
+        },
+        {
+          "title": "pairing can be interrupted, navigation returns, current-device revocation and sign-in",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-dark",
+              "projectName": "mobile-dark",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "08e19391991abe1d91dc-8d1c99092b0d764b191b",
+          "file": "walkthrough.spec.mjs",
+          "line": 17,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-04T18:32:43.630Z",
+    "duration": 22.273000000000025,
+    "expected": 0,
+    "skipped": 24,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}
