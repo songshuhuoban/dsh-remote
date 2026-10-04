@@ -30,6 +30,23 @@ describe('actual DSH wire presentation', () => {
       }),
     ).toEqual({ role: '你', text: '世界' });
   });
+  it('separates DSH runtime records from actual user bubbles by durable source identity', () => {
+    for (const kind of ['runtime-context', 'current-time'])
+      expect(
+        eventMessage({
+          type: 'user/message',
+          seq: 1,
+          data: { source: { kind }, content: 'runtime metadata' },
+        }),
+      ).toEqual({ role: '运行时上下文', text: 'runtime metadata' });
+    expect(
+      eventMessage({
+        type: 'user/message',
+        seq: 2,
+        data: { source: { kind: 'user' }, content: 'runtime-context is my actual question' },
+      }),
+    ).toEqual({ role: '你', text: 'runtime-context is my actual question' });
+  });
   it('does not treat transient frames as durable conversation', () =>
     expect(eventMessage({ type: 'step/start', seq: 1, data: {} })).toBeNull());
   it('merges wrapped events only for the selected session, deduplicated by sequence', () => {

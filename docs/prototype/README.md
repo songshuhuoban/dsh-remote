@@ -89,8 +89,8 @@ At the recorded local pass:
 - **39 state-model tests passed**: ownership fencing, cancel/timeout, indeterminate commands, cold view, approval staleness, repository readiness, authorization and late callbacks
 - **12 DOM tests passed**: visible recovery actions, real click handlers, modal dismissal/focus, preserving edited input, path-binding and context preview
 - **3 style-contract tests passed**: semantic-token resolution, theme ownership, font-weight/focus/reduced-motion and viewport constraints
-- **24 browser tests discovered, not yet executed**: 6 walkthroughs × desktop/mobile × light/dark. The configured browser suite generates screenshots and traces when it can run
-- **Prototype pixels have not been visually QA'd in a browser**: the current executor's Chromium route is blocked by its AF_UNIX restriction. The official upstream settings screenshot was inspected, which establishes source grounding but is not prototype visual verification
+- **24 actual Chromium browser tests passed**: 6 walkthroughs × desktop/mobile × light/dark in [hosted run 37226466567](https://github.com/songshuhuoban/dsh-remote/actions/runs/37226466567), commit `4c415dfc06b9bc91ec5920e9ced8039737f1054b`. The run produced 40 state screenshots
+- **Representative pixels reviewed**: 20 desktop/mobile light/dark screens were inspected, covering conversation, settings, instance status, approvals, repositories/context, queue, upload error, indeterminate result and revoked authentication. Core geometry and legibility passed. Mobile toasts can overlap sticky controls; client adoption must place them safely. A scrolled local-reference-row capture should supplement the repository screenshot
 
 Evidence is in `evidence/*tests.tap` and `evidence/browser-test-discovery.txt`. Browser tests require an allowed Chromium execution environment such as the project's CI. Do not bypass local execution restrictions. Passing the reducer/DOM tests is **not a proof that deadlock is impossible**, nor backend, real OAuth, Flutter or live-provider E2E acceptance.
 

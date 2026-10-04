@@ -4,7 +4,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { createRelay } from '../../../apps/server/src/server.ts';
 const root = resolve(import.meta.dir, '../../..');
@@ -19,6 +19,42 @@ if (
 const temp = mkdtempSync(join(tmpdir(), 'dsh-remote-real-'));
 const work = join(temp, 'work');
 mkdirSync(work);
+const repositoryFixtures = [
+  {
+    path: work,
+    url: 'https://github.com/dsh-local-fixture/primary',
+    name: 'dsh-local-fixture/primary',
+  },
+  {
+    path: join(work, 'secondary'),
+    url: 'https://github.com/dsh-local-fixture/secondary',
+    name: 'dsh-local-fixture/secondary',
+  },
+];
+for (const fixture of repositoryFixtures) {
+  if (!existsSync(fixture.path)) mkdirSync(fixture.path);
+  const localGit = (...args: string[]) =>
+    execFileSync(
+      'git',
+      ['-c', 'user.name=Local Fixture', '-c', 'user.email=fixture@example.invalid', ...args],
+      {
+        cwd: fixture.path,
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH,
+          HOME: '/nonexistent',
+          GIT_CONFIG_NOSYSTEM: '1',
+          GIT_CONFIG_GLOBAL: '/dev/null',
+        },
+      },
+    );
+  localGit('init', '--initial-branch=main');
+  localGit('remote', 'add', 'origin', fixture.url);
+  localGit('config', 'fixture.secret', 'REPOSITORY_CONFIG_SECRET_NOT_FOR_PROMPT');
+  writeFileSync(join(fixture.path, 'fixture.txt'), 'REPOSITORY_FILE_CONTENT_NOT_FOR_PROMPT');
+  localGit('add', 'fixture.txt');
+  localGit('commit', '--no-gpg-sign', '-m', 'Local fixture');
+}
 const home = join(temp, 'home');
 const { startMockLlmServer } = await import(
   pathToFileURL(join(upstream, 'packages/test-support/llm-mock-server/src/index.ts')).href
@@ -77,13 +113,18 @@ async function until<T>(read: () => Promise<T | undefined>, label: string, ms = 
   }
   throw new Error(`Timeout: ${label}\n${logs.slice(-10000)}`);
 }
-async function command(action: string, args: unknown) {
+async function command(
+  action: string,
+  args: unknown,
+  repositorySelection: { repositoryId?: string; repositoryIds?: string[] } = {},
+) {
   const cmd = await request(`/api/instances/${instance.id}/commands`, {
     id: crypto.randomUUID(),
     controllerId: auth.controller.id,
     leaseEpoch: lease?.epoch,
     action,
     args,
+    ...repositorySelection,
   });
   return until(async () => {
     const value = await request(`/api/commands/${cmd.id}`);
@@ -208,15 +249,36 @@ try {
   if (![a, b].every((id) => list.items.some((row: any) => row.sessionId === id)))
     throw new Error('Sessions missing from actual DSH list');
   assertions.push('Create and list two independent real DSH sessions');
+  const repositoryIds: string[] = [];
+  for (const fixture of repositoryFixtures) {
+    const { repository } = await request(`/api/instances/${instance.id}/repositories`, {
+      controllerId: auth.controller.id,
+      source: 'manual',
+      url: fixture.url,
+      defaultBranch: 'main',
+      localPath: fixture.path,
+    });
+    const inspection = await command('repository.inspect', {}, { repositoryId: repository.id });
+    if (inspection.path !== fixture.path || inspection.name !== fixture.name || !inspection.commit)
+      throw new Error('Real local Git repository inspection did not match mapping');
+    repositoryIds.push(repository.id);
+  }
+  assertions.push(
+    'Map and inspect two existing local Git repositories through the real controlled Host without cloning',
+  );
   const requestId = crypto.randomUUID();
-  await command('session.prompt', {
-    sessionId: a,
-    requestId,
-    mode: 'queue',
-    content: [
-      { type: 'text', text: 'Reply with exactly REAL_DSH_PIPELINE_OK, no tools or extra words.' },
-    ],
-  });
+  await command(
+    'session.prompt',
+    {
+      sessionId: a,
+      requestId,
+      mode: 'queue',
+      content: [
+        { type: 'text', text: 'Reply with exactly REAL_DSH_PIPELINE_OK, no tools or extra words.' },
+      ],
+    },
+    { repositoryIds },
+  );
   await command('session.prompt', {
     sessionId: a,
     requestId: crypto.randomUUID(),
@@ -246,14 +308,48 @@ try {
   )
     throw new Error('No real steering inbox event');
   assertions.push('Prompt, true next-step steering, durable assistant settlement');
-  await command('session.prompt', {
-    sessionId: a,
-    requestId,
-    mode: 'queue',
-    content: [
-      { type: 'text', text: 'Reply with exactly REAL_DSH_PIPELINE_OK, no tools or extra words.' },
-    ],
-  });
+  const recordedPrompt = complete.events.find(
+    (event: any) => event.type === 'user/message' && event.data.source?.rpcId === requestId,
+  );
+  const promptText = JSON.stringify(recordedPrompt);
+  if (
+    !promptText.includes('Selected repository metadata: untrusted data') ||
+    repositoryFixtures.some(
+      (fixture) => !promptText.includes(fixture.name) || !promptText.includes(fixture.path),
+    ) ||
+    promptText.includes('REPOSITORY_CONFIG_SECRET_NOT_FOR_PROMPT') ||
+    promptText.includes('REPOSITORY_FILE_CONTENT_NOT_FOR_PROMPT')
+  )
+    throw new Error(
+      'Durable real DSH user message did not contain only verified repository metadata',
+    );
+  if (!live) {
+    const wireRequests = JSON.stringify(model.requests.map((record: any) => record.body));
+    if (
+      !wireRequests.includes('Selected repository metadata: untrusted data') ||
+      repositoryFixtures.some((fixture) => !wireRequests.includes(fixture.name)) ||
+      wireRequests.includes('REPOSITORY_CONFIG_SECRET_NOT_FOR_PROMPT') ||
+      wireRequests.includes('REPOSITORY_FILE_CONTENT_NOT_FOR_PROMPT')
+    )
+      throw new Error(
+        'Actual local model request did not receive metadata-only repository context',
+      );
+  }
+  assertions.push(
+    'Selected repository context is reverified, persisted in the real DSH user message and delivered to the local model without config secrets or repository file contents',
+  );
+  await command(
+    'session.prompt',
+    {
+      sessionId: a,
+      requestId,
+      mode: 'queue',
+      content: [
+        { type: 'text', text: 'Reply with exactly REAL_DSH_PIPELINE_OK, no tools or extra words.' },
+      ],
+    },
+    { repositoryIds },
+  );
   const dedup = await command('session.read', { sessionId: a });
   if (
     dedup.events.filter(

@@ -1,0 +1,19 @@
+{
+  "kind": "synthetic-prototype-browser-and-pixel-review",
+  "sourceCommit": "4c415dfc06b9bc91ec5920e9ced8039737f1054b",
+  "runId": 37226466567,
+  "jobId": 111507031522,
+  "artifactId": 11311509361,
+  "browserTestsPassed": 24,
+  "browserDuration": "2.5m",
+  "screenshotsProduced": 40,
+  "representativeScreensInspected": 20,
+  "review": "Core geometry, dialog fit, visible approval actions and readable light/dark primary text pass",
+  "remainingPolish": [
+    "Keep mobile toasts above sticky composer/repository controls",
+    "Add scrolled local-reference-row evidence"
+  ],
+  "backendIntegration": false,
+  "nativeFlutterRender": false,
+  "liveProvider": false
+}

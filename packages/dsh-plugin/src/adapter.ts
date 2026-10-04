@@ -1,6 +1,8 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { relative, isAbsolute } from 'node:path';
+import { inspectRepository, repositoryPromptContext } from './repositories.ts';
+import type { RepositoryContext } from '../../protocol/src/index.ts';
 import { validateCommand } from '../../protocol/src/validation.ts';
 import type {
   Agent,
@@ -13,6 +15,7 @@ import type {
 } from './host.ts';
 
 export const CAPABILITIES = [
+  'repository.inspect',
   'session.list',
   'session.read',
   'session.page',
@@ -291,6 +294,7 @@ export class DshAdapter {
       return this.respond(args);
     }
     const mutations = [
+      'repository.inspect',
       'session.create',
       'session.prompt',
       'session.cancel',
@@ -364,6 +368,15 @@ export class DshAdapter {
     }
     guard();
     switch (action) {
+      case 'repository.inspect': {
+        const result = await inspectRepository(
+          text(args, 'path'),
+          text(args, 'expectedRemoteUrl'),
+          this.policy.allowedWorkspaceRoots,
+        );
+        guard();
+        return result;
+      }
       case 'capabilities':
         return {
           upstreamVersion: '0.2.1-alpha.1',
@@ -435,15 +448,48 @@ export class DshAdapter {
         const agent = await this.agent(text(args, 'sessionId'));
         return { sessionId: agent.id, agentAvailable: true, running: agent.status === 'running' };
       }
-      case 'session.prompt':
-        only(args, ['sessionId', 'requestId', 'mode', 'content', 'clientTimeZone']);
+      case 'session.prompt': {
+        only(args, [
+          'sessionId',
+          'requestId',
+          'mode',
+          'content',
+          'clientTimeZone',
+          'repositoryContext',
+        ]);
         text(args, 'sessionId');
         text(args, 'requestId');
         if (args.mode !== 'queue' && args.mode !== 'steer')
           throw new AdapterError('invalid_arguments', 'mode must be queue or steer');
         if (!Array.isArray(args.content))
           throw new AdapterError('invalid_arguments', 'content must be an array');
-        return controller.prompt(args, signal);
+        const { repositoryContext, ...request } = args;
+        if (repositoryContext !== undefined) {
+          const context = await repositoryPromptContext(
+            repositoryContext as RepositoryContext[],
+            this.policy.allowedWorkspaceRoots,
+          );
+          const content = (args.content as Array<Record<string, unknown>>).map((part) => ({
+            ...part,
+          }));
+          let lastText = -1;
+          for (let i = content.length - 1; i >= 0; i--) {
+            if (content[i]!.type === 'text') {
+              lastText = i;
+              break;
+            }
+          }
+          if (lastText >= 0)
+            content[lastText] = {
+              ...content[lastText],
+              text: String(content[lastText]!.text) + context,
+            };
+          else content.push({ type: 'text', text: context });
+          request.content = content;
+        }
+        guard();
+        return controller.prompt(request, signal);
+      }
       case 'session.cancel':
         only(args, ['sessionId']);
         return controller.cancel({ sessionId: text(args, 'sessionId') });

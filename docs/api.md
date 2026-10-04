@@ -47,3 +47,7 @@ If replay exceeds 1,000 events, the server emits `{type:'reset',cursor,reason}`.
 Authorization bearer token is mandatory. The connector sends `hello` with boot identity/capabilities. The server sends `welcome` with instance and connection generation. Commands and live leases carry fencing fields. A `lease.ack` only follows installation of that fence inside the actual host shim.
 
 Results are journaled before transmission and acknowledged with `result.ack`. Durable events have stable source IDs and `event.ack`; acknowledged outbox records can be pruned. Reconnect resends unacknowledged results/events, never blindly reruns a possibly applied command. A new host boot invalidates historical approval handles.
+
+## Instance liveness and repository references
+
+Instance status exposes connecting/online/stale/offline plus observation timestamps; see [instance connection status](instance-status.md). GitHub read-only discovery, existing-checkout mapping, fenced inspection and metadata-only prompt context are specified in [repository access](github-repositories.md). These new backend paths are separate from the original engineering-base UI snapshot.

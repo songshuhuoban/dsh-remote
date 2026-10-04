@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check } from 'lucide-react';
+import { Check } from './icons';
 import { asList, asRecord, runCommand } from './api';
 import { Modal, Spinner, Err } from './ui';
 export function ModelSettings({
@@ -68,11 +68,19 @@ export function ModelSettings({
     if (!edited.current) {
       const projection = asRecord(asRecord(asRecord(settings.data).projections).values);
       const projected = asRecord(projection.modelSelection);
-      const candidates = [projected.next, projected.lastUsed, current, catalog.default].map(asRecord);
-      const value = candidates.find((value) =>
-        typeof value.provider === 'string' && typeof value.model === 'string' &&
-        (!groups.length || groups.some((g) => asRecord(g).id === value.provider &&
-          asList(g, 'models').some((m) => asRecord(m).id === value.model))),
+      const candidates = [projected.next, projected.lastUsed, current, catalog.default].map(
+        asRecord,
+      );
+      const value = candidates.find(
+        (value) =>
+          typeof value.provider === 'string' &&
+          typeof value.model === 'string' &&
+          (!groups.length ||
+            groups.some(
+              (g) =>
+                asRecord(g).id === value.provider &&
+                asList(g, 'models').some((m) => asRecord(m).id === value.model),
+            )),
       );
       if (!value) return;
       setProvider(String(value.provider ?? ''));
@@ -126,7 +134,10 @@ export function ModelSettings({
               aria-label="提供商"
               required
               value={provider}
-              onChange={(e) => { edited.current = true; setProvider(e.target.value); }}
+              onChange={(e) => {
+                edited.current = true;
+                setProvider(e.target.value);
+              }}
               placeholder="提供商标识"
             />
           )}
@@ -158,7 +169,10 @@ export function ModelSettings({
               aria-label="模型"
               required
               value={model}
-              onChange={(e) => { edited.current = true; setModel(e.target.value); }}
+              onChange={(e) => {
+                edited.current = true;
+                setModel(e.target.value);
+              }}
               placeholder="模型标识"
             />
           )}
@@ -166,7 +180,14 @@ export function ModelSettings({
         <label>
           推理强度 <span className="optional">可选</span>
           {efforts.length ? (
-            <select aria-label="推理强度" value={effort} onChange={(e) => { edited.current = true; setEffort(e.target.value); }}>
+            <select
+              aria-label="推理强度"
+              value={effort}
+              onChange={(e) => {
+                edited.current = true;
+                setEffort(e.target.value);
+              }}
+            >
               <option value="">使用默认值</option>
               {efforts.map((e) => (
                 <option key={String(asRecord(e).id)} value={String(asRecord(e).id)}>
@@ -178,7 +199,10 @@ export function ModelSettings({
             <input
               aria-label="推理强度"
               value={effort}
-              onChange={(e) => { edited.current = true; setEffort(e.target.value); }}
+              onChange={(e) => {
+                edited.current = true;
+                setEffort(e.target.value);
+              }}
               placeholder="留空使用模型默认值"
             />
           )}
@@ -191,7 +215,11 @@ export function ModelSettings({
           <p className="tiny">只显示主机允许远程选择的预设。Agent 预设仅能在首轮任务前更改</p>
           <label>
             权限预设
-            <select value={permission} onChange={(e) => setPermission(e.target.value)}>
+            <select
+              aria-label="权限预设"
+              value={permission}
+              onChange={(e) => setPermission(e.target.value)}
+            >
               <option value="">选择权限预设</option>
               {asList(settings.data, 'allowedPermissionPresets').map((p) => (
                 <option key={String(p)} value={String(p)}>
@@ -210,7 +238,11 @@ export function ModelSettings({
           </button>
           <label>
             Agent 预设
-            <select value={preset} onChange={(e) => setPreset(e.target.value)}>
+            <select
+              aria-label="Agent 预设"
+              value={preset}
+              onChange={(e) => setPreset(e.target.value)}
+            >
               <option value="">选择 Agent 预设</option>
               {asList(settings.data, 'allowedAgentPresets').map((p) => (
                 <option key={String(p)} value={String(p)}>

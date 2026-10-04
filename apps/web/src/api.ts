@@ -16,7 +16,12 @@ export type Instance = {
   name: string;
   online?: boolean;
   status?: string;
-  lastSeenAt?: string | number;
+  lastSeenAt?: string | number | null;
+  observedAt?: number;
+  connectedAt?: number | null;
+  disconnectedAt?: number | null;
+  bootId?: string | null;
+  connectionEpoch?: number;
   lease?: Lease | null;
 };
 export type Identity = { user: User; controller: Controller };
@@ -39,6 +44,23 @@ export class ApiError extends Error {
     super(message);
   }
 }
+export class CommandError extends Error {
+  constructor(
+    message: string,
+    public command: Command,
+  ) {
+    super(message);
+  }
+}
+export class CommandAdmissionError extends ApiError {}
+export const commandPending = (command: Command) =>
+  ['pending', 'queued', 'accepted', 'running', 'sent', 'dispatched'].includes(command.status);
+export function commandResult(command: Command): unknown {
+  if (command.status === 'succeeded' && !command.error) return command.result;
+  throw new CommandError(errorText(command.error ?? `命令未完成: ${command.status}`), command);
+}
+export const queryCommand = async (id: string, signal?: AbortSignal) =>
+  unwrapCommand(await api<Command>(`/api/commands/${encodeURIComponent(id)}`, { signal }));
 export const asRecord = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -60,6 +82,9 @@ export const errorText = (error: unknown): string =>
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     ...options,
+    signal: options.signal
+      ? AbortSignal.any([options.signal, AbortSignal.timeout(20_000)])
+      : AbortSignal.timeout(20_000),
     credentials: 'include',
     headers: {
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
@@ -103,6 +128,7 @@ export async function runCommand(
   leaseEpoch?: number,
   signal?: AbortSignal,
   id: string = crypto.randomUUID(),
+  references: { repositoryId?: string; repositoryIds?: string[] } = {},
 ): Promise<unknown> {
   let command = unwrapCommand(
     await api<Command>(`/api/instances/${encodeURIComponent(instanceId)}/commands`, {
@@ -113,34 +139,40 @@ export async function runCommand(
         action,
         args,
         ...(leaseEpoch !== undefined ? { leaseEpoch } : {}),
+        ...references,
       }),
       signal,
+    }).catch((error) => {
+      if (error instanceof ApiError && error.status >= 400 && error.status < 500)
+        throw new CommandAdmissionError(error.message, error.status, error.detail);
+      throw error;
     }),
   );
   const deadline = Date.now() + 90_000;
-  while (
-    ['pending', 'queued', 'accepted', 'running', 'sent', 'dispatched'].includes(command.status)
-  ) {
+  while (commandPending(command)) {
     if (Date.now() > deadline)
       throw new Error(`命令仍在等待结果 (${id})。请检查实例连接，勿重复提交写入操作`);
     await delay(500, signal);
-    command = unwrapCommand(
-      await api<Command>(`/api/commands/${encodeURIComponent(id)}`, { signal }),
-    );
+    command = await queryCommand(id, signal);
   }
-  if (
-    ['failed', 'error', 'cancelled', 'timeout', 'rejected', 'indeterminate'].includes(
-      command.status,
-    ) ||
-    command.error
-  )
-    throw new Error(errorText(command.error ?? `命令未完成: ${command.status}`));
-  if (command.status !== 'succeeded')
-    throw new Error(`无法确认命令结果 (${id}): ${command.status}`);
-  return command.result;
+  return commandResult(command);
 }
 export function leaseActive(lease: Lease | null | undefined, now = Date.now()) {
   return !!lease && !lease.pending && new Date(lease.expiresAt).getTime() > now;
 }
-export const isOnline = (instance: Instance) =>
-  instance.online === true || instance.status === 'online' || instance.status === 'connected';
+export type InstanceStatus = 'connecting' | 'online' | 'stale' | 'offline';
+export function instanceStatus(instance: Instance): InstanceStatus {
+  // An explicit stale/offline snapshot always wins over legacy cached booleans.
+  if (['connecting', 'online', 'stale', 'offline'].includes(instance.status ?? ''))
+    return instance.status as InstanceStatus;
+  return instance.online === true || instance.status === 'connected' ? 'online' : 'offline';
+}
+export const isOnline = (instance: Instance) => instanceStatus(instance) === 'online';
+export const statusLabel = (instance: Instance) =>
+  ({ connecting: '正在连接', online: '在线', stale: '状态过期', offline: '离线' })[
+    instanceStatus(instance)
+  ];
+export const timeLabel = (value: string | number | null | undefined) =>
+  value != null && Number.isFinite(new Date(value).getTime())
+    ? new Date(value).toLocaleString('zh-CN', { hour12: false })
+    : '尚未观测到';

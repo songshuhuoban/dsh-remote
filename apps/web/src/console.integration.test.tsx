@@ -101,6 +101,37 @@ it('registers through React, creates an offline instance, safely disables writes
   );
   for (const element of screen.getAllByRole('button', { name: /新建会话/ }))
     expect((element as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'GitHub 仓库' }));
+  expect(await screen.findByText('此部署尚未配置 GitHub App')).toBeTruthy();
+  expect((screen.getByRole('button', { name: '连接 GitHub' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  fireEvent.click(screen.getByRole('button', { name: '手动映射' }));
+  fireEvent.change(screen.getByLabelText('GitHub 仓库 URL'), {
+    target: { value: 'https://github.com/example/local-repo' },
+  });
+  fireEvent.change(screen.getByLabelText('已有工作树绝对路径'), {
+    target: { value: '/allowed/../escape' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: '保存映射' }));
+  expect(await screen.findByText(/请输入已有工作树的规范绝对路径/)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('已有工作树绝对路径'), {
+    target: { value: '/allowed/existing-repo' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: '保存映射' }));
+  expect(await screen.findByText('example/local-repo')).toBeTruthy();
+  expect(screen.getByText('待主机验证 · 手动声明')).toBeTruthy();
+  expect((screen.getByRole('button', { name: '验证工作树' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  fireEvent.click(screen.getByLabelText('供消息引用'));
+  await waitFor(() =>
+    expect((screen.getByLabelText('供消息引用') as HTMLInputElement).checked).toBe(false),
+  );
+  fireEvent.click(screen.getByRole('button', { name: '返回会话' }));
+  fireEvent.click(screen.getByRole('button', { name: '实例状态' }));
+  expect(screen.getByText(/最近心跳：尚未观测到/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /^返回$/ }));
   fireEvent.click(screen.getByRole('button', { name: '实例连接凭据' }));
   fireEvent.click(screen.getByRole('button', { name: '取消' }));
   expect(screen.queryByRole('dialog')).toBeNull();

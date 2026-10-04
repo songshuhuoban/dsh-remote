@@ -7,27 +7,28 @@ The requested complete end-to-end acceptance is **not complete**. The matrix bel
 | Lane | Result | Exact scope |
 | --- | --- | --- |
 | Root TypeScript and builds | Passed | Strict server/protocol/connector/plugin types, Node plugin bundle, production TanStack/Vite build |
-| Protocol, auth, validators and plugin safety | 93 passed; 1 Windows-only test skipped; 0 failed | 371 assertions; synthetic connector/Host fixtures only in explicitly labelled protocol/unit tests |
-| Real DSH pipeline | 14 assertions passed | Actual pinned Node DSH source profile, plugin, Bun connector, relay, SQLite, sessions, queue, tools/approval service and attachment storage; external model replies supplied by official deterministic local fixture |
+| Protocol, auth, validators, GitHub flows and plugin safety | 133 passed; 1 Windows-only test skipped; 0 failed | 596 assertions in the reviewed local backend increment, including real temporary Git worktrees; protocol/GitHub network fixtures are explicitly labelled |
+| Real DSH pipeline | 16 assertions passed | Actual pinned Node DSH source profile, plugin, Bun connector, relay, SQLite, sessions, queue, tools/approval service and attachment storage; external model replies supplied by official deterministic local fixture |
 | Three real DSH processes | 6 assertions passed | Two users, three authenticated controllers, A1/A2/B1 hosts, distinct stores with identical session IDs, real output isolation and independent fenced control; deterministic local model only |
-| Web unit tests | 13 passed | API and session rendering/data helpers |
+| Web unit/DOM-contract/style tests | 39 passed | Adopted DSH-native UI, catalog hydration, repository/context, state and recovery helpers |
 | Web rendered DOM + real relay | Passed | Registration, cookie transport, live sync, modal cancellation, instance creation, offline-write protection, controller view, logout |
 | Web rendered DOM + real DSH | Passed | Real fixture topology; login, explicit takeover, create, prompt/durable reply, upload, queued-input edit/remove, model selection, exact live approval and release |
-| Flutter analyzer/unit/widget | Passed | Analyzer zero issues; 9 default tests passed, 1 opt-in real-host test skipped there and executed separately |
-| Flutter engine widgets + real DSH | Passed (42 seconds) | Real HTTP/WebSocket/relay/connector/DSH: paging, takeover, create, rendered reply, queue edit/priority/removal, bound approval, revisioned settings and same-controller restoration. Test-only ephemeral credential-store implementation; deterministic model only. Not an Android/iOS device pass |
+| Flutter analyzer/unit/widget | Passed | Analyzer zero issues; 27 default tests passed, 1 opt-in real-host test skipped there and executed separately |
+| Flutter engine widgets + real DSH | Passed (47 seconds after adoption) | Real HTTP/WebSocket/relay/connector/DSH: paging, takeover, create, rendered reply, queue edit/priority/removal, bound approval, revisioned settings and same-controller restoration, two repository references and metadata-only prompt context. Test-only ephemeral credential/journal-store implementations; deterministic model only. Not an Android/iOS device pass |
 | Native Dart + real relay | Passed | Auth, distinct controllers, instance registry, cross-tenant isolation, bearer WebSocket snapshot, logout revocation |
-| Chromium actual browser UI | Blocked / not run | Both normal and admitted escalated local Chromium runs fail at `socket(AF_UNIX): Operation not permitted` before UI loads; cloud browser blocks localhost. Runnable browser specs are included for a suitable CI runner |
+| Chromium actual browser UI | Basic relay 2 passed; real DSH main flow 1 passed | Hosted run 37227512156 on commit 450c2bde passed real takeover, prompt/history/reload, attachment, model selection, queue, approval, cancellation and responsive checks. Earlier accessible-label regression was fixed with two tests. External model remains deterministic; prototype adoption must revalidate this lane |
+| Android debug build | Passed on hosted runner | Flutter job in run 37226076284 built the debug APK after analyzer, default tests and real-DSH widget tests; this is not a device or secure-store pass |
 | Android/iOS device or simulator E2E | Not run | Requires a supported device/emulator; iOS build/signing additionally requires macOS/Xcode. No installed-app, Keychain/Keystore or native file-picker acceptance is claimed |
 | Live model provider | Not run | Requires explicit authorized provider configuration/usage; no provider credentials were retrieved and no paid provider requests were made |
 | Windows controlled DSH host | Unsupported / fails closed | Needs verified Windows ACL or OS credential-store support; POSIX checks are not silently skipped |
-| Public repository / deployment | Draft engineering source / not deployed | Public repository created; this engineering source is a draft. Hosted CI results must be checked on the exact commit |
-| DSH-native UI/UX prototype | Pending / not accepted | Current clients are functional drafts. A clickable prototype matching upstream style and audited recovery paths is the next design gate |
+| Public repository / deployment | Engineering branch published / not deployed | `engineering-base` is published; initial source c867556, prototype 4c415df and browser-label fix 450c2bd. No pull request or deployment is claimed |
+| DSH-native UI/UX prototype | 54 local checks and 24 actual browser cases passed | Run 37226466567; representative pixels reviewed across desktop/mobile light/dark. Prototype simulation only; real-client adoption and mobile toast polish remain open |
 
 Toolchain: Bun 1.4.2, Node 24.19.0, TypeScript 5.9.3, Flutter 3.47.6 / Dart 3.13.5. The Linux DSH host was actually exercised. macOS POSIX source compatibility is not a tested macOS result.
 
 ## Real DSH main-flow evidence
 
-`docs/runtime-smoke-result.json` records the 14 executed assertions:
+`docs/runtime-smoke-result.json` records the 16 executed assertions:
 
 1. Node DSH profile and actual managed Bun connector connect
 2. Host acknowledges the writer fence
@@ -43,6 +44,8 @@ Toolchain: Bun 1.4.2, Node 24.19.0, TypeScript 5.9.3, Flutter 3.47.6 / Dart 3.13
 12. Actual model-selection write and durable configuration proof
 13. Actual permission-preset write with optimistic revision
 14. DSH process restart, passive cold history read and explicit resume
+15. Two real existing Git worktrees mapped and inspected through the fenced Host
+16. Verified repository metadata reaches durable DSH user-message and actual local-model request without repository file/config sentinels
 
 The approval fixture uses an isolated test-only pre-step request with a bounded file side effect to exercise the real approval service. It does not replace the production adapter. The source-only test overlay omits generated Typert and bundled DSH browser assets; it does not alter upstream source. That distinction remains visible in the evidence.
 

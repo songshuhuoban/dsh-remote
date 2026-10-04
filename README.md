@@ -8,7 +8,7 @@ An independent multi-user control plane for DeepSeek Harness (DSH): a Bun relay,
 
 ## UI/UX design status
 
-The current web and mobile interfaces are functional engineering drafts. The next design gate is a clickable prototype grounded in DeepSeek Harness's own visual style, with complete paths and escape/recovery states for takeover, approvals, reconnects, failed uploads, cancellation, and navigation. Prototype validation and applying that design to both clients remain open; passing engineering tests does not imply UX acceptance.
+The [clickable prototype](docs/prototype/README.md) uses DeepSeek Harness's own semantic styles and covers takeover, approval, reconnect, failed upload, cancellation, repository references and navigation. Its 54 local checks and 24 actual Chromium walkthroughs passed; representative desktop/mobile light/dark pixels were reviewed. It remains a labelled simulation. The real Web and Flutter clients now adopt this design and pass their local real-DSH/DOM or widget checks. Hosted browser and APK validation of this newer snapshot remains a separate final gate.
 
 ## Repository
 
@@ -85,3 +85,7 @@ See [API details](docs/api.md), [architecture](docs/design/architecture.md), [ac
 The relay is deliberately a single-process SQLite service. Horizontal scaling is unsupported. The relay persists account password hashes, token hashes, command metadata/results, event history and pending approvals. Local conversations and attachments crossing the remote channel are sensitive user data: protect both relay storage and connector journals, configure disk limits/retention/backups before deployment, and never publish runtime databases.
 
 `.data/`, `.env`, local toolchains, app build outputs and test auth state are ignored. Use synthetic content for public evidence. Never commit an instance token, provider key, session cookie or real conversation history.
+
+## Repository access and instance observations
+
+The backend exposes timestamped connecting/online/stale/offline status, plus an operator-configured read-only GitHub App integration and verified references to existing local Git worktrees. Authorization, local path declaration, and Host verification are separate states. Each selected reference is rechecked before metadata is admitted to a DSH user message; no credentials or repository file contents are injected. Automatic cloning and native OAuth initiation are not implemented. See [repository access](docs/github-repositories.md) and [instance status](docs/instance-status.md). Both clients implement these flows; hosted validation of this newer adoption snapshot is tracked separately.

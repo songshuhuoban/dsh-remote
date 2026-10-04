@@ -126,6 +126,9 @@ export function apply(ctx: DshHostContext, raw: PluginConfig): void {
           connectionEpoch = frame.connectionEpoch;
           lease = null;
           adapter.setAvailable(online);
+        } else if (frame.type === 'heartbeat') {
+          if (online && frame.connectionEpoch === connectionEpoch && Number.isSafeInteger(frame.nonce))
+            write({ type: 'heartbeat.ack', connectionEpoch, nonce: frame.nonce });
         } else if (frame.type === 'lease') {
           if (frame.connectionEpoch === connectionEpoch) {
             lease = {

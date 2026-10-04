@@ -18,8 +18,6 @@ import {
   ArrowDown,
   ArrowRight,
   ArrowUpRight,
-  Check,
-  ChevronDown,
   ChevronRight,
   Clipboard,
   Command as CommandIcon,
@@ -30,24 +28,28 @@ import {
   Layers3,
   Loader2,
   LogOut,
-  Menu,
   MessageSquare,
   Monitor,
-  Paperclip,
-  Pencil,
-  Plus,
   Radio,
-  RefreshCw,
-  Send,
-  Settings2,
   Shield,
   ShieldCheck,
-  Square,
   Terminal,
   Trash2,
-  X,
   Zap,
 } from 'lucide-react';
+import {
+  Settings2,
+  Menu,
+  Plus,
+  X,
+  RefreshCw,
+  Check,
+  Send,
+  Paperclip,
+  Square,
+  Pencil,
+  ChevronDown,
+} from './icons';
 import {
   api,
   ApiError,
@@ -55,6 +57,9 @@ import {
   asRecord,
   errorText,
   isOnline,
+  instanceStatus,
+  statusLabel,
+  timeLabel,
   leaseActive,
   post,
   runCommand,
@@ -77,6 +82,10 @@ import {
 import { useEvents, type PendingApproval, type LiveStream } from './use-events';
 import { Modal, Spinner, Err, Empty } from './ui';
 import { ModelSettings } from './model-settings';
+import { RepositoryPanel } from './repository-panel';
+import { getReferences, contextPreview, repositoryIdsForPrompt } from './repositories';
+import { readDraft, saveDraft } from './drafts';
+import { OperationsProvider, RecoveryPanel, useOperations } from './operations';
 import './styles.css';
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -104,13 +113,12 @@ declare module '@tanstack/react-router' {
   }
 }
 const Brand = () => (
-  <div className="brand">
-    <span className="brand-mark">
-      <Terminal size={19} />
+  <div className="brand" aria-label="DeepSeek Harness Remote">
+    <span className="brand-wordmark">
+      <span>deepseek</span>
+      <span>harness</span>
     </span>
-    <span>
-      DSH <span className="brand-light">REMOTE</span>
-    </span>
+    <small className="brand-remote">remote</small>
   </div>
 );
 function App() {
@@ -127,24 +135,37 @@ function App() {
     return (
       <Auth error={me.error instanceof ApiError && me.error.status === 401 ? null : me.error} />
     );
-  return <Console identity={me.data} />;
+  return (
+    <OperationsProvider key={me.data.user.id} accountId={me.data.user.id}>
+      <Console identity={me.data} />
+    </OperationsProvider>
+  );
 }
 function Auth({ error }: { error: unknown }) {
   const client = useQueryClient(),
     [register, setRegister] = useState(false),
     [email, setEmail] = useState(''),
     [password, setPassword] = useState(''),
-    [deviceName, setDeviceName] = useState('Web 控制台');
+    [deviceName, setDeviceName] = useState('Web 控制台'),
+    [authNotice, setAuthNotice] = useState('');
+  const authAttempt = useRef(0),
+    authAbort = useRef<AbortController | null>(null);
   const mutation = useMutation({
-    mutationFn: () =>
-      post<Identity>(`/api/auth/${register ? 'register' : 'login'}`, {
-        email,
-        password,
-        deviceName,
-      }),
-    onSuccess: (data) => {
+    mutationFn: async () => {
+      const generation = ++authAttempt.current;
+      authAbort.current = new AbortController();
+      setAuthNotice('');
+      const data = await api<Identity>(`/api/auth/${register ? 'register' : 'login'}`, {
+        method: 'POST',
+        body: JSON.stringify({ email, password, deviceName }),
+        signal: authAbort.current.signal,
+      });
+      return { data, generation };
+    },
+    onSuccess: ({ data, generation }) => {
+      if (generation !== authAttempt.current) return;
       sessionStorage.setItem('dsh.controller', data.controller.id);
-      client.setQueryData(['me'], {user:data.user,controller:data.controller});
+      client.setQueryData(['me'], { user: data.user, controller: data.controller });
     },
   });
   return (
@@ -247,11 +268,37 @@ function Auth({ error }: { error: unknown }) {
             {register ? '创建账户' : '登录控制台'}
             <ArrowRight size={17} />
           </button>
+          {mutation.isPending && (
+            <button
+              className="quiet wide"
+              type="button"
+              onClick={() => {
+                authAttempt.current += 1;
+                authAbort.current?.abort();
+                setAuthNotice('已停止等待。登录或注册可能已在服务端完成，可查询当前登录状态');
+              }}
+            >
+              停止等待登录
+            </button>
+          )}
+          {authNotice && (
+            <div className="notice" role="status">
+              {authNotice}
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => void client.invalidateQueries({ queryKey: ['me'] })}
+              >
+                查询登录状态
+              </button>
+            </div>
+          )}
           <p className="auth-switch">
             {register ? '已经有账户？' : '第一次使用？'}{' '}
             <button
               type="button"
               className="text-button"
+              disabled={mutation.isPending}
               onClick={() => {
                 setRegister(!register);
                 mutation.reset();
@@ -273,12 +320,79 @@ function Console({ identity }: { identity: Identity }) {
     navigate = useNavigate({ from: '/' }),
     search = indexRoute.useSearch(),
     [mobileMenu, setMobileMenu] = useState(false),
-    [modal, setModal] = useState<'instance' | 'devices' | 'session' | 'takeover' | 'rotate' | null>(
-      null,
-    ),
+    [modal, setModal] = useState<
+      'instance' | 'devices' | 'session' | 'takeover' | 'rotate' | 'status' | 'settings' | null
+    >(null),
     [notice, setNotice] = useState(''),
     [clock, setClock] = useState(Date.now()),
-    [tab, setTab] = useState<'conversation' | 'events'>('conversation');
+    [tab, setTab] = useState<'conversation' | 'events' | 'repositories'>('conversation'),
+    [writeSuspended, setWriteSuspended] = useState(false),
+    [theme, setTheme] = useState<'system' | 'light' | 'dark'>('system');
+  const operations = useOperations(),
+    hadLive = useRef(false);
+  useEffect(() => {
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
+    const apply = () =>
+      document.body.toggleAttribute(
+        'data-ds-dark-theme',
+        theme === 'dark' || (theme === 'system' && !!media?.matches),
+      );
+    apply();
+    media?.addEventListener('change', apply);
+    return () => media?.removeEventListener('change', apply);
+  }, [theme]);
+  useEffect(() => {
+    const result = new URLSearchParams(location.search).get('github');
+    if (!result) return;
+    setTab('repositories');
+    setNotice(
+      result === 'connected'
+        ? 'GitHub 已连接，请刷新并选择可访问的仓库'
+        : result === 'cancelled'
+          ? 'GitHub 授权已取消，可以重试或使用手动映射'
+          : 'GitHub 授权未完成，请检查连接状态后重试',
+    );
+    sessionStorage.removeItem('dsh.githubFlow');
+    void navigate({
+      search: { instance: search.instance, session: search.session },
+      replace: true,
+    });
+  }, []);
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileMenu(false);
+    };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, []);
+  useEffect(() => {
+    if (!mobileMenu) return;
+    const trigger = document.activeElement as HTMLElement | null;
+    const drawer = document.querySelector<HTMLElement>('.sidebar');
+    drawer?.querySelector<HTMLElement>('[aria-label="关闭导航"]')?.focus();
+    const trap = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || !drawer) return;
+      const controls = [
+        ...drawer.querySelectorAll<HTMLElement>(
+          'button:not(:disabled),select:not(:disabled),a[href],input:not(:disabled)',
+        ),
+      ].filter((el) => el.getClientRects().length);
+      const first = controls[0],
+        last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    window.addEventListener('keydown', trap);
+    return () => {
+      window.removeEventListener('keydown', trap);
+      if (!document.querySelector('dialog[open]')) trigger?.focus();
+    };
+  }, [mobileMenu]);
   const instances = useQuery({
     queryKey: ['instances'],
     queryFn: () => api<{ instances: Instance[] }>('/api/instances'),
@@ -295,8 +409,18 @@ function Console({ identity }: { identity: Identity }) {
   const id = instance?.id,
     online = !!instance && isOnline(instance),
     lease = instance?.lease,
-    holding = leaseActive(lease, clock) && lease?.controllerId === identity.controller.id,
-    occupied = leaseActive(lease, clock) && !holding;
+    holding =
+      online &&
+      eventStream.state === 'live' &&
+      !writeSuspended &&
+      leaseActive(lease, clock) &&
+      lease?.controllerId === identity.controller.id,
+    occupied = leaseActive(lease, clock) && lease?.controllerId !== identity.controller.id;
+  useEffect(() => {
+    if (eventStream.state === 'live') hadLive.current = true;
+    else if (hadLive.current) setWriteSuspended(true);
+    if (instance && instanceStatus(instance) !== 'online') setWriteSuspended(true);
+  }, [eventStream.state, instance?.status, instance?.online]);
   const controllerName = (controllerId?: string) =>
     controllers.data?.controllers.find((c) => c.id === controllerId)?.name ??
     controllerId?.slice(0, 12) ??
@@ -310,6 +434,9 @@ function Console({ identity }: { identity: Identity }) {
     enabled: !!id && online,
     refetchInterval: 15000,
   });
+  const selectedInstance = useRef(id),
+    leaseRequestTarget = useRef(id);
+  selectedInstance.current = id;
   const selected = sessions.data?.find((s) => s.sessionId === search.session);
   const sessionId = search.session;
   const events = eventStream.events.filter((e) => e.instanceId === id);
@@ -317,6 +444,8 @@ function Console({ identity }: { identity: Identity }) {
     void navigate({ search: { instance: value, session: undefined } });
     setMobileMenu(false);
     setNotice('');
+    setModal(null);
+    setWriteSuspended(false);
   };
   const selectSession = (value: string) => {
     void navigate({ search: { instance: id, session: value } });
@@ -324,29 +453,37 @@ function Console({ identity }: { identity: Identity }) {
     setTab('conversation');
   };
   const leaseMutation = useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       takeover = false,
       release = false,
     }: {
       takeover?: boolean;
       release?: boolean;
-    }) =>
-      release
-        ? api(`/api/instances/${id}/lease`, {
-            method: 'DELETE',
-            body: JSON.stringify({ controllerId: identity.controller.id }),
-          })
-        : post<Lease>(`/api/instances/${id}/lease`, {
-            controllerId: identity.controller.id,
-            takeover,
-          }),
-    onSuccess: () => {
+    }) => {
+      const target = id;
+      if (!target) throw new Error('请先选择实例');
+      leaseRequestTarget.current = target;
+      if (release)
+        await api(`/api/instances/${target}/lease`, {
+          method: 'DELETE',
+          body: JSON.stringify({ controllerId: identity.controller.id }),
+        });
+      else
+        await post<Lease>(`/api/instances/${target}/lease`, {
+          controllerId: identity.controller.id,
+          takeover,
+        });
+      return target;
+    },
+    onSuccess: (target) => {
       void client.invalidateQueries({ queryKey: ['instances'] });
-      setModal(null);
+      if (selectedInstance.current !== target) return;
+      setWriteSuspended(false);
+      setModal((current) => (current === 'takeover' ? null : current));
       setNotice('');
     },
     onError: (error) => {
-      setNotice(errorText(error));
+      if (selectedInstance.current === leaseRequestTarget.current) setNotice(errorText(error));
       void client.invalidateQueries({ queryKey: ['instances'] });
     },
   });
@@ -409,7 +546,7 @@ function Console({ identity }: { identity: Identity }) {
             {instances.data?.instances.map((i) => (
               <option key={i.id} value={i.id}>
                 {i.name}
-                {isOnline(i) ? ' · 在线' : ' · 离线'}
+                {' · ' + statusLabel(i)}
               </option>
             ))}
           </select>
@@ -418,6 +555,27 @@ function Console({ identity }: { identity: Identity }) {
         <button className="sidebar-action" onClick={() => setModal('instance')}>
           <Plus size={16} /> 连接新实例
           <ArrowUpRight size={14} />
+        </button>
+        <button
+          className="sidebar-action"
+          onClick={() => {
+            setModal('status');
+            setMobileMenu(false);
+          }}
+          disabled={!instance}
+        >
+          <Cpu size={16} />
+          实例状态
+        </button>
+        <button
+          className="sidebar-action"
+          onClick={() => {
+            setTab('repositories');
+            setMobileMenu(false);
+          }}
+        >
+          <Layers3 size={16} />
+          GitHub 仓库
         </button>
         <div className="sidebar-divider" />
         <div className="section-label">
@@ -482,6 +640,15 @@ function Console({ identity }: { identity: Identity }) {
           )}
         </nav>
         <div className="sidebar-bottom">
+          <button
+            onClick={() => {
+              setModal('settings');
+              setMobileMenu(false);
+            }}
+          >
+            <Settings2 size={17} />
+            <span>设置</span>
+          </button>
           <button onClick={() => setModal('devices')}>
             <Monitor size={17} />
             <span>控制设备</span>
@@ -519,6 +686,7 @@ function Console({ identity }: { identity: Identity }) {
             className="icon-button mobile-only"
             onClick={() => setMobileMenu(true)}
             aria-label="打开导航"
+            aria-expanded={mobileMenu}
           >
             <Menu size={20} />
           </button>
@@ -566,7 +734,7 @@ function Console({ identity }: { identity: Identity }) {
                   {instance.name}
                   <span className={`pill ${online ? 'online' : ''}`}>
                     <span className="status-dot" />
-                    {online ? '在线' : '离线'}
+                    {statusLabel(instance)}
                   </span>
                 </h1>
                 <p>你的 DSH 会话、运行状态与控制权，尽在此处</p>
@@ -595,7 +763,7 @@ function Console({ identity }: { identity: Identity }) {
                 </div>
                 <button
                   className={holding ? 'quiet' : 'primary small'}
-                  disabled={leaseMutation.isPending || !online}
+                  disabled={leaseMutation.isPending || !online || eventStream.state !== 'live'}
                   onClick={() =>
                     holding
                       ? leaseMutation.mutate({ release: true })
@@ -616,6 +784,7 @@ function Console({ identity }: { identity: Identity }) {
                 </button>
               </div>
             </section>
+            <RecoveryPanel instanceId={id} />
             <div className="content-grid">
               <section className="conversation-panel">
                 <div className="panel-tabs">
@@ -646,7 +815,15 @@ function Console({ identity }: { identity: Identity }) {
                     )}
                   </span>
                 </div>
-                {tab === 'events' ? (
+                {tab === 'repositories' ? (
+                  <RepositoryPanel
+                    key={id ?? 'none'}
+                    instance={instance}
+                    controller={identity.controller}
+                    lease={holding ? lease! : null}
+                    onClose={() => setTab('conversation')}
+                  />
+                ) : tab === 'events' ? (
                   <EventLog events={events} />
                 ) : sessionId ? (
                   <Session
@@ -745,6 +922,13 @@ function Console({ identity }: { identity: Identity }) {
               </aside>
             </div>
           </>
+        ) : tab === 'repositories' ? (
+          <RepositoryPanel
+            controller={identity.controller}
+            instance={instance}
+            lease={null}
+            onClose={() => setTab('conversation')}
+          />
         ) : (
           <div className="welcome">
             <div className="hero-glyph">
@@ -764,6 +948,74 @@ function Console({ identity }: { identity: Identity }) {
           </div>
         )}
       </main>
+      {modal === 'settings' && (
+        <Modal title="设置" onClose={() => setModal(null)} description="外观与此设备设置">
+          <label>
+            外观
+            <select
+              className="theme-picker"
+              aria-label="外观"
+              value={theme}
+              onChange={(e) => setTheme(e.target.value as typeof theme)}
+            >
+              <option value="system">跟随系统</option>
+              <option value="light">浅色</option>
+              <option value="dark">深色</option>
+            </select>
+          </label>
+          <div className="modal-actions">
+            <button className="quiet" onClick={() => setModal('devices')}>
+              管理控制设备
+            </button>
+            <button className="primary" onClick={() => setModal(null)}>
+              完成
+            </button>
+          </div>
+        </Modal>
+      )}
+      {modal === 'status' && instance && (
+        <Modal
+          title={`${instance.name} · 实例状态`}
+          onClose={() => setModal(null)}
+          description="以下时间是服务端最近观测。过期状态不能用于写入"
+        >
+          <div className="instance-status-details">
+            <p>
+              <strong>{statusLabel(instance)}</strong> ·{' '}
+              {eventStream.state === 'live' ? '观察流已同步' : '观察流尚未同步'}
+            </p>
+            <p>最近心跳：{timeLabel(instance.lastSeenAt)}</p>
+            <p>连接时间：{timeLabel(instance.connectedAt)}</p>
+            <p>断开时间：{timeLabel(instance.disconnectedAt)}</p>
+            <p>状态观测：{timeLabel(instance.observedAt)}</p>
+            <p>
+              实例 ID：<code>{instance.id}</code>
+            </p>
+            <p>连接代次：{instance.connectionEpoch ?? '未知'}</p>
+            <p>
+              写入设备：{leaseActive(lease) ? controllerName(lease?.controllerId) : '暂无'}
+              {lease?.pending ? ' · 等待主机确认' : ''}
+            </p>
+          </div>
+          <Err error={instances.error} />
+          <div className="modal-actions">
+            <button
+              className="quiet"
+              disabled={instances.isFetching}
+              onClick={() => void instances.refetch()}
+            >
+              <RefreshCw size={15} />
+              刷新实例状态
+            </button>
+            <button className="quiet" onClick={() => setModal('rotate')}>
+              连接凭据
+            </button>
+            <button className="primary" onClick={() => setModal(null)}>
+              返回
+            </button>
+          </div>
+        </Modal>
+      )}
       {modal === 'instance' && (
         <CreateInstance onClose={() => setModal(null)} onCreated={switchInstance} />
       )}{' '}
@@ -802,7 +1054,9 @@ function Console({ identity }: { identity: Identity }) {
         <CreateSession
           instanceId={id}
           controllerId={identity.controller.id}
-          lease={holding ? lease! : null}
+          lease={
+            holding && !operations.operations.some((op) => op.instanceId === id) ? lease! : null
+          }
           onClose={() => setModal(null)}
           onCreated={(sid) => {
             selectSession(sid);
@@ -1086,34 +1340,38 @@ function CreateSession({
 }) {
   const [cwd, setCwd] = useState(''),
     [createdSessionId] = useState(() => crypto.randomUUID()),
-    client = useQueryClient();
+    client = useQueryClient(),
+    operations = useOperations(),
+    mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const mutation = useMutation({
     mutationFn: async () => {
       if (!lease || !leaseActive(lease)) throw new Error('控制权已失效，请重新获取');
       const data = asRecord(
-        await runCommand(
+        await operations.run({
           instanceId,
           controllerId,
-          'session.create',
-          { sessionId: createdSessionId, ...(cwd.trim() ? { cwd: cwd.trim() } : {}) },
-          lease.epoch,
-        ),
+          action: 'session.create',
+          args: { sessionId: createdSessionId, ...(cwd.trim() ? { cwd: cwd.trim() } : {}) },
+          leaseEpoch: lease.epoch,
+          references: {},
+        }),
       );
       if (typeof data.sessionId !== 'string') throw new Error('实例未返回会话标识');
       return data.sessionId;
     },
     onSuccess: (sid) => {
       void client.invalidateQueries({ queryKey: ['remote', instanceId, 'sessions'] });
-      onCreated(sid);
+      if (mounted.current) onCreated(sid);
     },
   });
   return (
-    <Modal
-      busy={mutation.isPending}
-      title="新建会话"
-      description="在选中实例上创建一个新的 DSH 会话"
-      onClose={onClose}
-    >
+    <Modal title="新建会话" description="在选中实例上创建一个新的 DSH 会话" onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -1131,8 +1389,9 @@ function CreateSession({
         </label>
         <p className="tiny">目录路径对应运行 DSH 的机器</p>
         <Err error={mutation.error} />
+        <RecoveryPanel instanceId={instanceId} />
         <div className="modal-actions">
-          <button type="button" className="quiet" onClick={onClose} disabled={mutation.isPending}>
+          <button type="button" className="quiet" onClick={onClose}>
             取消
           </button>
           <button className="primary" disabled={!lease || mutation.isPending}>
@@ -1194,18 +1453,34 @@ function Session({
   summary?: SessionSummary;
   notify: (s: string) => void;
 }) {
+  const draftKey = `dsh.draft.${controller.id}.${id}.${sessionId}`;
+  const [savedDraft] = useState(() => readDraft(draftKey));
   const client = useQueryClient(),
-    [prompt, setPrompt] = useState(''),
-    [mode, setMode] = useState<'queue' | 'steer'>('queue'),
+    [prompt, setPrompt] = useState(savedDraft.text),
+    [mode, setMode] = useState<'queue' | 'steer'>(savedDraft.mode),
     [modelOpen, setModelOpen] = useState(false),
-    [files, setFiles] = useState<{ name: string; content: Record<string, unknown> }[]>([]),
+    [files, setFiles] = useState<{ name: string; content: Record<string, unknown> }[]>(
+      savedDraft.files,
+    ),
     [uploading, setUploading] = useState(false),
     [uploadError, setUploadError] = useState(''),
     [approvalBusy, setApprovalBusy] = useState<string | null>(null),
     [queueBusy, setQueueBusy] = useState<string | null>(null),
     [queueEdit, setQueueEdit] = useState<{ item: unknown; text: string } | null>(null),
     [actionError, setActionError] = useState(''),
-    [autoScroll, setAutoScroll] = useState(true);
+    [autoScroll, setAutoScroll] = useState(true),
+    [referenceIds, setReferenceIds] = useState<string[]>(savedDraft.references),
+    [contextOpen, setContextOpen] = useState(false);
+  useEffect(() => {
+    if (!saveDraft(draftKey, { text: prompt, mode, references: referenceIds, files }))
+      setUploadError('草稿未能保存在此标签页。离开前请复制文本或减少附件');
+  }, [draftKey, prompt, mode, referenceIds, files]);
+  const operations = useOperations();
+  const references = useQuery({
+    queryKey: ['repositories', id],
+    queryFn: ({ signal }) => getReferences(id, signal),
+    refetchInterval: 10000,
+  });
   const scrollRef = useRef<HTMLDivElement>(null),
     fileInput = useRef<HTMLInputElement>(null),
     submissionLock = useRef(false),
@@ -1233,16 +1508,32 @@ function Session({
     ...asList(asRecord(projection.inbox)['next-turn'], 'items'),
     ...asList(asRecord(projection.inbox)['next-step'], 'items'),
   ];
-  const canWrite = !!lease && leaseActive(lease) && online;
-  async function write(action: string, args: Record<string, unknown>, commandId?: string) {
-    if (!lease || !leaseActive(lease)) throw new Error('控制权已失效，请重新获取');
-    const result = await runCommand(
-      id,
-      controller.id,
-      action,
-      args,
-      lease.epoch,
-      undefined,
+  const canWrite =
+    !!lease &&
+    leaseActive(lease) &&
+    online &&
+    !operations.operations.some((op) => op.instanceId === id);
+  const attachedReferences = referenceIds.map((referenceId) =>
+    references.data?.repositories.find((row) => row.id === referenceId),
+  );
+  const invalidReferences = attachedReferences.some((row) => !row || row.localState !== 'verified');
+  async function write(
+    action: string,
+    args: Record<string, unknown>,
+    commandId?: string,
+    repositoryIds?: string[],
+  ) {
+    if (!lease || !leaseActive(lease) || !online)
+      throw new Error('控制权或实例连接已失效，请重新获取');
+    const result = await operations.run(
+      {
+        instanceId: id,
+        controllerId: controller.id,
+        action,
+        args,
+        leaseEpoch: lease.epoch,
+        references: repositoryIds?.length ? { repositoryIds } : {},
+      },
       commandId,
     );
     void client.invalidateQueries({ queryKey: ['remote', id] });
@@ -1251,18 +1542,23 @@ function Session({
   const send = useMutation({
     mutationFn: async () => {
       if (submissionLock.current) throw new Error('消息正在提交');
-      submissionLock.current = true;
       const content = [
         ...(prompt.trim() ? [{ type: 'text', text: prompt.trim() }] : []),
         ...files.map((f) => f.content),
       ];
-      const fingerprint = JSON.stringify({ content, mode });
+      const repositoryIds = repositoryIdsForPrompt(
+        references.data?.repositories ?? [],
+        referenceIds,
+        id,
+      );
+      const fingerprint = JSON.stringify({ content, mode, repositoryIds });
       if (submission.current?.fingerprint !== fingerprint)
         submission.current = {
           fingerprint,
           requestId: crypto.randomUUID(),
           commandId: crypto.randomUUID(),
         };
+      submissionLock.current = true;
       try {
         return await write(
           'session.prompt',
@@ -1274,6 +1570,7 @@ function Session({
             clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           },
           submission.current.commandId,
+          repositoryIds,
         );
       } finally {
         submissionLock.current = false;
@@ -1283,6 +1580,7 @@ function Session({
       submission.current = null;
       setPrompt('');
       setFiles([]);
+      setReferenceIds([]);
       setAutoScroll(true);
     },
   });
@@ -1423,36 +1721,45 @@ function Session({
             写下你的目标、问题或任务，DSH 会从这里开始
           </Empty>
         ) : null}
-        {messages.map(({ event, message }) => (
-          <article
-            key={event.seq}
-            className={`message ${message!.role === '你' ? 'user-message' : ''}`}
-          >
-            <div className="message-avatar">
-              {message!.role === '你' ? (
-                <span>你</span>
-              ) : message!.role === 'DSH' ? (
-                <Terminal size={17} />
-              ) : (
-                <Settings2 size={16} />
-              )}
-            </div>
-            <div className="message-content">
-              <header>
-                <strong>{message!.role}</strong>
-                <time>
-                  {event.time
-                    ? new Date(event.time).toLocaleTimeString('zh-CN', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })
-                    : ''}
-                </time>
-              </header>
-              <div className="message-text">{message!.text}</div>
-            </div>
-          </article>
-        ))}
+        {messages.map(({ event, message }) =>
+          message!.role === '运行时上下文' ? (
+            <details key={event.seq} className="runtime-record">
+              <summary>
+                运行时上下文 · {String(asRecord(asRecord(event.data).source).kind ?? '系统')}
+              </summary>
+              <pre>{message!.text}</pre>
+            </details>
+          ) : (
+            <article
+              key={event.seq}
+              className={`message ${message!.role === '你' ? 'user-message' : ''}`}
+            >
+              <div className="message-avatar">
+                {message!.role === '你' ? (
+                  <span>你</span>
+                ) : message!.role === 'DSH' ? (
+                  <Terminal size={17} />
+                ) : (
+                  <Settings2 size={16} />
+                )}
+              </div>
+              <div className="message-content">
+                <header>
+                  <strong>{message!.role}</strong>
+                  <time>
+                    {event.time
+                      ? new Date(event.time).toLocaleTimeString('zh-CN', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : ''}
+                  </time>
+                </header>
+                <div className="message-text">{message!.text}</div>
+              </div>
+            </article>
+          ),
+        )}
         {streamText && (
           <article className="message live-message">
             <div className="message-avatar">
@@ -1473,6 +1780,51 @@ function Session({
             </div>
           </article>
         )}
+      </div>
+      {!autoScroll && (
+        <button className="scroll-latest" onClick={() => setAutoScroll(true)}>
+          <ArrowDown size={14} />
+          最新消息
+        </button>
+      )}
+      {queued.length > 0 && (
+        <div className="queue-list">
+          <div className="eyebrow">待处理队列 · {queued.length}</div>
+          {queued.map((item, index) => (
+            <div key={String(asRecord(item).id ?? index)}>
+              <p>{contentText(asRecord(item).content)}</p>
+              <button
+                className="icon-button"
+                title="编辑队列项"
+                aria-label="编辑队列项"
+                disabled={!canWrite || !!queueBusy}
+                onClick={() => setQueueEdit({ item, text: contentText(asRecord(item).content) })}
+              >
+                <Pencil size={14} />
+              </button>
+              <button
+                className="icon-button"
+                title="转为 steer"
+                aria-label="转为 steer"
+                disabled={!canWrite || !!queueBusy}
+                onClick={() => void changeQueue(item, 'steer')}
+              >
+                <Zap size={14} />
+              </button>
+              <button
+                className="icon-button"
+                title="移除队列项"
+                aria-label="移除队列项"
+                disabled={!canWrite || !!queueBusy}
+                onClick={() => void changeQueue(item, 'remove')}
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="approval-dock">
         {pending.size > 0 &&
           [...pending.values()].map((approval) => (
             <div className="approval-card" key={String(approval.approvalId)}>
@@ -1518,64 +1870,61 @@ function Session({
             </div>
           ))}
       </div>
-      {!autoScroll && (
-        <button className="scroll-latest" onClick={() => setAutoScroll(true)}>
-          <ArrowDown size={14} />
-          最新消息
-        </button>
-      )}
-      {queued.length > 0 && (
-        <div className="queue-list">
-          <div className="eyebrow">待处理队列 · {queued.length}</div>
-          {queued.map((item, index) => (
-            <div key={String(asRecord(item).id ?? index)}>
-              <p>{contentText(asRecord(item).content)}</p>
-              <button
-                className="icon-button"
-                title="编辑队列项"
-                aria-label="编辑队列项"
-                disabled={!canWrite || !!queueBusy}
-                onClick={() => setQueueEdit({ item, text: contentText(asRecord(item).content) })}
-              >
-                <Pencil size={14} />
-              </button>
-              <button
-                className="icon-button"
-                title="转为 steer"
-                aria-label="转为 steer"
-                disabled={!canWrite || !!queueBusy}
-                onClick={() => void changeQueue(item, 'steer')}
-              >
-                <Zap size={14} />
-              </button>
-              <button
-                className="icon-button"
-                title="移除队列项"
-                aria-label="移除队列项"
-                disabled={!canWrite || !!queueBusy}
-                onClick={() => void changeQueue(item, 'remove')}
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
       <div className="composer-area">
         <Err error={send.error || cancel.error || resume.error || uploadError || actionError} />
+        {invalidReferences && (
+          <div className="error" role="alert">
+            引用已过期或不可用，请在仓库页面重新验证，或移除对应引用
+          </div>
+        )}
         {!canWrite && (
           <div className="view-only">
             <Shield size={14} />
-            {online ? '只读模式 · 获取控制权后可发送消息与处理审批' : '实例离线 · 等待重新连接'}
+            {operations.operations.some((op) => op.instanceId === id)
+              ? '原命令尚待确认 · 可查看历史、停止等待或查询原命令'
+              : online
+                ? '只读模式 · 获取控制权后可发送消息与处理审批'
+                : '实例连接不可用于写入 · 等待状态恢复'}
           </div>
         )}
         <form
           className={`composer ${!canWrite ? 'disabled' : ''}`}
           onSubmit={(e) => {
             e.preventDefault();
-            if (canWrite && (prompt.trim() || files.length) && !send.isPending) send.mutate();
+            if (
+              canWrite &&
+              !invalidReferences &&
+              (prompt.trim() || files.length) &&
+              !send.isPending
+            )
+              send.mutate();
           }}
         >
+          {referenceIds.length > 0 && (
+            <div className="repository-chips">
+              {referenceIds.map((referenceId, index) => (
+                <span className="reference-chip" key={referenceId}>
+                  <Layers3 size={13} />
+                  <span>
+                    {attachedReferences[index]?.fullName ?? '不可用引用'}
+                    {attachedReferences[index]?.localState !== 'verified' ? ' · 待验证' : ''}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`移除仓库 ${attachedReferences[index]?.fullName ?? referenceId}`}
+                    onClick={() =>
+                      setReferenceIds((old) => old.filter((value) => value !== referenceId))
+                    }
+                  >
+                    <X size={13} />
+                  </button>
+                </span>
+              ))}
+              <button type="button" className="text-button" onClick={() => setContextOpen(true)}>
+                预览引用上下文
+              </button>
+            </div>
+          )}
           {files.length > 0 && (
             <div className="attachment-list">
               {files.map((file, index) => (
@@ -1606,7 +1955,13 @@ function Session({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
-                if (canWrite && (prompt.trim() || files.length) && !send.isPending) send.mutate();
+                if (
+                  canWrite &&
+                  !invalidReferences &&
+                  (prompt.trim() || files.length) &&
+                  !send.isPending
+                )
+                  send.mutate();
               }
             }}
           />
@@ -1632,6 +1987,27 @@ function Session({
                   e.target.value = '';
                 }}
               />
+              <select
+                className="reference-picker"
+                aria-label="添加仓库引用"
+                value=""
+                disabled={referenceIds.length >= 8}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value)
+                    setReferenceIds((old) => (old.includes(value) ? old : [...old, value]));
+                }}
+              >
+                <option value="">引用仓库 ({referenceIds.length}/8)</option>
+                {references.data?.repositories
+                  .filter((row) => row.selected && !referenceIds.includes(row.id))
+                  .map((row) => (
+                    <option key={row.id} value={row.id} disabled={row.localState !== 'verified'}>
+                      {row.fullName}
+                      {row.localState !== 'verified' ? ' · 请先验证' : ''}
+                    </option>
+                  ))}
+              </select>
               <button type="button" className="model-button" onClick={() => setModelOpen(true)}>
                 <Settings2 size={14} />
                 <span>{String(selection.model ?? '模型与配置')}</span>
@@ -1665,7 +2041,11 @@ function Session({
                 aria-label="发送消息"
                 title="发送 · Ctrl / ⌘ + Enter"
                 disabled={
-                  !canWrite || send.isPending || uploading || (!prompt.trim() && !files.length)
+                  !canWrite ||
+                  invalidReferences ||
+                  send.isPending ||
+                  uploading ||
+                  (!prompt.trim() && !files.length)
                 }
               >
                 {send.isPending ? <Spinner /> : <Send size={17} />}
@@ -1689,11 +2069,43 @@ function Session({
           )}
         </div>
       </div>
+      {contextOpen && (
+        <Modal
+          title="本条消息的仓库上下文"
+          description="仅使用实例绑定的引用 ID，服务端再次检查已有工作树。此预览不包含仓库文件或访问令牌"
+          onClose={() => setContextOpen(false)}
+        >
+          {attachedReferences.map((row, index) => (
+            <div className="repository-row" key={referenceIds[index]}>
+              {row ? (
+                <div>
+                  <strong>{row.fullName}</strong>
+                  <pre>{JSON.stringify(contextPreview(row), null, 2)}</pre>
+                </div>
+              ) : (
+                <p>此引用已不可用，请移除</p>
+              )}
+              <button
+                className="quiet"
+                onClick={() =>
+                  setReferenceIds((old) => old.filter((value) => value !== referenceIds[index]))
+                }
+              >
+                移除引用
+              </button>
+            </div>
+          ))}
+          <div className="modal-actions">
+            <button className="primary" onClick={() => setContextOpen(false)}>
+              返回草稿
+            </button>
+          </div>
+        </Modal>
+      )}
       {queueEdit && (
         <Modal
           title="编辑待处理消息"
           description="只能修改尚未消费的队列文本"
-          busy={!!queueBusy}
           onClose={() => setQueueEdit(null)}
         >
           <form
@@ -1714,12 +2126,7 @@ function Session({
             </label>
             <Err error={actionError} />
             <div className="modal-actions">
-              <button
-                type="button"
-                className="quiet"
-                onClick={() => setQueueEdit(null)}
-                disabled={!!queueBusy}
-              >
+              <button type="button" className="quiet" onClick={() => setQueueEdit(null)}>
                 取消
               </button>
               <button

@@ -1,5 +1,6 @@
-import { useEffect, useRef, type ReactNode } from 'react';
-import { Loader2, Shield, X } from 'lucide-react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { Loader2, Shield } from 'lucide-react';
+import { X } from './icons';
 import { errorText } from './api';
 export const Spinner = () => <Loader2 className="spin" size={16} />;
 export const Err = ({ error }: { error: unknown }) =>
@@ -38,6 +39,7 @@ export function Modal({
   busy?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   useEffect(() => {
     const d = ref.current;
     d?.showModal();
@@ -47,17 +49,27 @@ export function Modal({
     <dialog
       ref={ref}
       className="modal"
+      aria-labelledby={titleId}
       onCancel={(e) => {
         if (busy) e.preventDefault();
         else onClose();
       }}
       onClick={(e) => {
-        if (!busy && e.target === e.currentTarget) onClose();
+        const box = e.currentTarget.getBoundingClientRect();
+        if (
+          !busy &&
+          e.target === e.currentTarget &&
+          (e.clientX < box.left ||
+            e.clientX > box.right ||
+            e.clientY < box.top ||
+            e.clientY > box.bottom)
+        )
+          onClose();
       }}
     >
       <div className="modal-top">
         <div>
-          <h2>{title}</h2>
+          <h2 id={titleId}>{title}</h2>
           {description && <p>{description}</p>}
         </div>
         <button className="icon-button" onClick={onClose} disabled={busy} aria-label="关闭">

@@ -14,7 +14,16 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-class EphemeralTestCredentials implements CredentialStore {
+class EphemeralTestCredentials implements CredentialStore, CommandJournalStore {
+  List<JsonMap> journal = [];
+  @override
+  Future<List<JsonMap>> readJournal() async =>
+      journal.map((v) => Map<String, dynamic>.from(v)).toList();
+  @override
+  Future<void> saveJournal(List<JsonMap> entries) async {
+    journal = entries.map((v) => Map<String, dynamic>.from(v)).toList();
+  }
+
   JsonMap? value;
   @override
   Future<JsonMap?> read() async => value;
@@ -55,11 +64,26 @@ void main() {
             );
           await loader.load();
         }
+        // flutter_tester has no system fallback fonts. Load the installed
+        // Linux mono font for evidence; real devices retain their native face.
+        final mono = File(
+          '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',
+        );
+        final monoFile = await mono.exists()
+            ? mono
+            : File(
+                '$sdk/bin/cache/artifacts/material_fonts/Roboto-Regular.ttf',
+              );
+        final monoLoader = FontLoader('monospace')
+          ..addFont(
+            Future.value(ByteData.sublistView(await monoFile.readAsBytes())),
+          );
+        await monoLoader.load();
       });
       await tester.binding.setSurfaceSize(const Size(430, 920));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       final credentials = EphemeralTestCredentials();
-      final store = RemoteStore(credentials: credentials);
+      final store = RemoteStore(credentials: credentials, journal: credentials);
       RemoteStore? restored;
       var firstDisposed = false;
       addTearDown(() {
@@ -73,6 +97,25 @@ void main() {
           child: DshRemoteApp(store: store, restoreSession: false),
         ),
       );
+
+      Future<void> screenshot(String name) async {
+        // Theme and nested Material text transitions each need a rendered frame.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 350));
+        await tester.pump(const Duration(milliseconds: 350));
+        final bytes = await tester.runAsync(() async {
+          final boundary =
+              capture.currentContext!.findRenderObject()!
+                  as RenderRepaintBoundary;
+          final image = await boundary.toImage(pixelRatio: 1);
+          return image.toByteData(format: ui.ImageByteFormat.png);
+        });
+        if (bytes != null) {
+          File(
+            '${File(fixturePath).parent.path}/$name.png',
+          ).writeAsBytesSync(bytes.buffer.asUint8List());
+        }
+      }
 
       Future<void> until(
         bool Function() ready,
@@ -246,6 +289,53 @@ void main() {
             null,
         'composer enabled',
       );
+      // Native selection uses the real relay's two already-mapped local worktrees.
+      await tap(find.byTooltip('Repository references'));
+      await until(
+        () =>
+            find.text('dsh-local-fixture/primary').evaluate().isNotEmpty &&
+            find.byType(LinearProgressIndicator).evaluate().isEmpty,
+        'real local repository list',
+      );
+      await tap(find.text('GitHub'));
+      await until(
+        () =>
+            find.text('GitHub is not configured').evaluate().isNotEmpty &&
+            find.byType(LinearProgressIndicator).evaluate().isEmpty,
+        'native GitHub web-connect instruction',
+      );
+      expect(
+        find.textContaining('Native OAuth is not supported'),
+        findsOneWidget,
+      );
+      await tap(find.text('Local references'));
+      final inspections = count('repository.inspect');
+      await tap(find.text('Verify checkout').first);
+      await latestDone('repository.inspect', inspections);
+      final inspection = store.commands.values.lastWhere(
+        (c) => c.json['action'] == 'repository.inspect',
+      );
+      expect(
+        object(inspection.json['submittedBody'])['repositoryId'],
+        isNotNull,
+      );
+      expect(object(object(inspection.json['submittedBody'])['args']), isEmpty);
+      await tap(find.byType(Checkbox).first);
+      await tap(find.byType(Checkbox).at(1));
+      await tap(find.text('Preview metadata').first);
+      expect(find.text('Message context preview'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (w) =>
+              w is SelectableText &&
+              (w.data?.contains('untrusted_repository_data') ?? false),
+        ),
+        findsOneWidget,
+      );
+      await screenshot('flutter-context-preview-light');
+      await tap(find.text('Close'));
+      await tap(find.text('Use 2 references'));
+      expect(find.byType(InputChip), findsNWidgets(2));
       final prompted = count('session.prompt');
       await tester.enterText(
         find.byType(TextField).last,
@@ -253,6 +343,17 @@ void main() {
       );
       await tap(find.byTooltip('Send prompt'));
       await latestDone('session.prompt', prompted);
+      final sent = store.commands.values.lastWhere(
+        (c) => c.json['action'] == 'session.prompt',
+      );
+      expect(object(sent.json['submittedBody'])['repositoryIds'], hasLength(2));
+      expect(
+        object(
+          object(sent.json['submittedBody'])['args'],
+        ).containsKey('repositoryContext'),
+        isFalse,
+      );
+
       await until(
         () => store.events.any(
           (event) =>
@@ -264,6 +365,26 @@ void main() {
         'durable DSH assistant message',
       );
       await tap(find.byTooltip('Refresh session'));
+      await until(
+        () => find.byType(LinearProgressIndicator).evaluate().isEmpty,
+        'repository prompt history read',
+      );
+      final readCommand = store.commands.values.lastWhere(
+        (c) => c.json['action'] == 'session.read',
+      );
+      final durable = pretty(readCommand.result);
+      expect(durable, contains('Selected repository metadata: untrusted data'));
+      expect(durable, contains('dsh-local-fixture/primary'));
+      expect(durable, contains('dsh-local-fixture/secondary'));
+      expect(
+        durable,
+        isNot(contains('REPOSITORY_CONFIG_SECRET_NOT_FOR_PROMPT')),
+      );
+      expect(
+        durable,
+        isNot(contains('REPOSITORY_FILE_CONTENT_NOT_FOR_PROMPT')),
+      );
+
       await until(
         () => find
             .byWidgetPredicate(
@@ -313,7 +434,7 @@ void main() {
         ),
       );
       await until(
-        () => find.text('Edit message').evaluate().length == 2,
+        () => find.text('Edit message').evaluate().isNotEmpty,
         'real queued messages rendered',
       );
       var queueUpdates = count('session.queue.update');
@@ -371,23 +492,25 @@ void main() {
       final updates = count('settings.update');
       await tap(find.text('Apply preset'));
       await latestDone('settings.update', updates);
-      final image = await tester.runAsync(() async {
-        final boundary =
-            capture.currentContext!.findRenderObject()!
-                as RenderRepaintBoundary;
-        final image = await boundary.toImage(pixelRatio: 1);
-        return image.toByteData(format: ui.ImageByteFormat.png);
-      });
-      if (image != null) {
-        File(
-          '${File(fixturePath).parent.path}/flutter-real-host.png',
-        ).writeAsBytesSync(image.buffer.asUint8List());
-      }
+      await screenshot('flutter-real-host');
+      await tester.pumpWidget(
+        RepaintBoundary(
+          key: capture,
+          child: DshRemoteApp(
+            store: store,
+            restoreSession: false,
+            themeMode: ThemeMode.dark,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      await screenshot('flutter-real-host-dark');
 
       await tester.pumpWidget(const SizedBox());
       store.dispose();
       firstDisposed = true;
-      restored = RemoteStore(credentials: credentials);
+      restored = RemoteStore(credentials: credentials, journal: credentials);
       await tester.pumpWidget(DshRemoteApp(store: restored));
       await until(
         () => restored!.signedIn && !restored.busy,

@@ -27,5 +27,16 @@ export function openStore(path: string): Database {
     )
   )
     db.exec("ALTER TABLE commands ADD COLUMN request_id TEXT");
+  if (
+    !(db.query("PRAGMA table_info(commands)").all() as { name: string }[]).some(
+      (column) => column.name === "repository_id",
+    )
+  )
+    db.exec("ALTER TABLE commands ADD COLUMN repository_id TEXT");
+  const instanceColumns = new Set(
+    (db.query("PRAGMA table_info(instances)").all() as { name: string }[]).map((c) => c.name),
+  );
+  for (const column of ["last_seen_at", "connected_at", "disconnected_at"])
+    if (!instanceColumns.has(column)) db.exec(`ALTER TABLE instances ADD COLUMN ${column} INTEGER`);
   return db;
 }

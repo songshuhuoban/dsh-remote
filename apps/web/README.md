@@ -53,3 +53,19 @@ The standard Playwright suite starts a real relay with an isolated temporary dat
 - Command retries for an unchanged prompt preserve command and DSH request IDs
 - A model switch also changes the DSH default model; the dialog discloses this side effect
 - Text and tool output are rendered as text, never injected as HTML
+
+## Harness UI and repositories
+
+The web application adopts the browser-reviewed prototype's pinned DeepSeek Harness semantic theme, local Montserrat assets, core icon artwork, conversation width, composer and approval geometry. It supports system/light/dark appearance, desktop and 390px mobile navigation, keyboard dismissal/focus restoration, and reduced motion. Upstream license and provenance are under `src/vendor/`. Runtime-generated context and time records are collapsed separately from real user messages; their text remains inspectable.
+
+`实例状态` queries real relay observations: connecting, online, stale and offline, last heartbeat, connection/disconnection timestamps and connection epoch. Stale or unsynchronized observations cannot grant writes. A disconnected observer stream suspends local write availability until explicit lease acquisition after reconnect.
+
+`GitHub 仓库` supports the deployment-configured GitHub App's browser authorization, explicit cancellation, installation pages, repository pages, multi-selection and mappings to existing local worktrees. Each mapping shows authorization provenance separately from declared/verified/stale local state. A deployment without GitHub configuration still supports manual mappings. Verification requires the live host and current lease. Message references are removable, previewable, limited to eight unique verified IDs, and admitted as top-level `repositoryIds`; the browser never supplies raw `repositoryContext` or inspection paths. This feature does not clone, fetch, check out, or automatically read repository content. See `docs/github-repositories.md` for operator setup and live OAuth acceptance gates.
+
+## Interrupted work and browser storage
+
+Before a write command is posted, its UUID, exact admitted body and lease epoch are saved in this tab's session storage. Network failure, timeout or stopped local waiting retains that original identity and blocks new writes to the affected instance. `查询原命令` performs only a GET; even an initial 404 cannot authorize a new mutation. Unknown outcomes remain queryable while navigation and logout stay available. There is no automatic mutation replay.
+
+A bounded, account- and origin-scoped local-storage journal stores only unresolved command/instance/controller IDs and action names. It preserves read-only reconciliation after the original tab is closed. It contains no prompt text, files, repository paths, authentication tokens or connector credentials. Exact bodies and unsent drafts remain tab-scoped; terminal confirmation removes recovery records. If browser storage cannot record a command safely, the UI fails before dispatch. Clearing browser storage discards this local recovery information, so operators should inspect host state before retrying uncertain work.
+
+The extended test suite covers metadata-only recovery across tab recreation, 404 races, late OAuth responses after cancellation, stale status, source-page-bound GitHub mappings, real-relay unconfigured/manual flows, and real-host multi-reference prompt admission. GitHub UI unit fixtures are deterministic contract tests, not live GitHub consent. Authenticated external OAuth and paid/live-provider acceptance remain separate operator-run gates.

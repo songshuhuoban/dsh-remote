@@ -28,16 +28,42 @@ test('actual DSH browser flow: takeover, history, prompt, file, model, queue, ap
   await page.getByRole('dialog').getByRole('button', { name: '创建会话', exact: true }).click();
   const input = page.getByRole('textbox', { name: '消息', exact: true });
   await expect(input).toBeEnabled();
+  const referenceSelect = page.getByLabel('添加仓库引用');
+  await expect(
+    referenceSelect.locator('option').filter({ hasText: 'dsh-local-fixture/primary' }),
+  ).toHaveCount(1);
+  await referenceSelect.selectOption({ label: 'dsh-local-fixture/primary' });
+  await referenceSelect.selectOption({ label: 'dsh-local-fixture/secondary' });
+  await page.getByRole('button', { name: '预览引用上下文' }).click();
+  await expect(page.getByRole('dialog')).toContainText('dsh-local-fixture/primary');
+  await expect(page.getByRole('dialog')).toContainText('dsh-local-fixture/secondary');
+  await page.screenshot({
+    path: testInfo.outputPath('actual-dsh-repository-preview.png'),
+    animations: 'disabled',
+  });
+  await page.getByRole('button', { name: '返回草稿' }).click();
+  const promptRequest = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' &&
+      request.url().includes('/commands') &&
+      request.postDataJSON()?.action === 'session.prompt',
+  );
   await input.fill('Actual browser prompt to the real DSH runtime.');
   await page.getByRole('button', { name: '发送消息', exact: true }).click();
-  // DSH may append separate runtime-context user records; identify the submitted message.
-  await expect(page.locator('.user-message').filter({ hasText: 'Actual browser prompt' })).toHaveCount(1);
+  const promptBody = (await promptRequest).postDataJSON();
+  expect(promptBody.repositoryIds).toHaveLength(2);
+  expect(promptBody.args.repositoryContext).toBeUndefined();
+  expect(JSON.stringify(promptBody.args)).not.toContain('localPath');
+  // Runtime metadata remains inspectable without becoming extra user bubbles.
+  await expect(page.locator('.user-message')).toHaveCount(1);
+  await expect(page.locator('.runtime-record').first()).toBeVisible();
   await expect(
     page.locator('.message-text').filter({ hasText: 'REAL_DSH_PIPELINE_OK' }).first(),
   ).toBeVisible({ timeout: 20000 });
   await page.screenshot({
     path: testInfo.outputPath('actual-dsh-conversation-desktop.png'),
     fullPage: true,
+    animations: 'disabled',
   });
   // Reload hydrates durable history and keeps the lease bound to the same controller.
   await page.reload();
@@ -50,13 +76,11 @@ test('actual DSH browser flow: takeover, history, prompt, file, model, queue, ap
   await dialog.getByRole('button', { name: '应用配置', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   // Real DSH file receipt then prompt admission.
-  await page
-    .locator('input[type=file]')
-    .setInputFiles({
-      name: 'browser-fixture.txt',
-      mimeType: 'text/plain',
-      buffer: Buffer.from('Browser attachment fixture'),
-    });
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'browser-fixture.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('Browser attachment fixture'),
+  });
   await expect(page.locator('.attachment-list')).toContainText('browser-fixture.txt');
   await input.fill('Read this isolated uploaded file.');
   await page.getByRole('button', { name: '发送消息', exact: true }).click();
@@ -81,6 +105,7 @@ test('actual DSH browser flow: takeover, history, prompt, file, model, queue, ap
   await page.screenshot({
     path: testInfo.outputPath('actual-dsh-approval-desktop.png'),
     fullPage: true,
+    animations: 'disabled',
   });
   await page.getByRole('button', { name: '拒绝', exact: true }).click();
   await expect(page.getByText('等待你的审批', { exact: true })).toHaveCount(0);
@@ -92,9 +117,14 @@ test('actual DSH browser flow: takeover, history, prompt, file, model, queue, ap
   await page.getByRole('button', { name: '释放', exact: true }).click();
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: '打开导航' }).click();
+  await expect(page.locator('.sidebar.open')).toBeVisible();
+  await page.getByRole('button', { name: '关闭导航', exact: true }).first().click();
+  await expect(page.locator('.sidebar')).toBeHidden();
   await page.screenshot({
     path: testInfo.outputPath('actual-dsh-conversation-mobile.png'),
     fullPage: true,
+    animations: 'disabled',
   });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,

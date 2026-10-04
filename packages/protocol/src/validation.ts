@@ -14,16 +14,25 @@ export const WIRE_LIMITS = Object.freeze({
   nameCharacters: 255,
   scalarCharacters: 4096,
   pageMessages: 500,
+  repositories: 8,
 });
 
 const fields: Record<Action, readonly string[]> = {
   capabilities: [],
+  'repository.inspect': ['path', 'expectedRemoteUrl'],
   'session.list': [],
   'session.read': ['sessionId'],
   'session.projections': ['sessionId'],
   'session.page': ['address', 'throughSeq', 'beforeSeq', 'maxMessages', 'turnWindow'],
   'session.create': ['sessionId', 'cwd', 'workspaceId', 'agentPreset'],
-  'session.prompt': ['sessionId', 'requestId', 'mode', 'content', 'clientTimeZone'],
+  'session.prompt': [
+    'sessionId',
+    'requestId',
+    'mode',
+    'content',
+    'clientTimeZone',
+    'repositoryContext',
+  ],
   'session.cancel': ['sessionId'],
   'session.resume': ['sessionId'],
   'session.queue.update': ['sessionId', 'itemId', 'action'],
@@ -199,6 +208,38 @@ function page(args: Record<string, unknown>): void {
     integer(window.minTurns, 'turnWindow.minTurns', 1);
   }
 }
+function repositoryPath(value: unknown): void {
+  text(value, 'repository path');
+  if (
+    /[\u0000-\u001f\u007f]/.test(value) ||
+    !value.startsWith('/') ||
+    value.split('/').includes('..')
+  )
+    fail('repository path must be an absolute path without traversal or controls');
+}
+function repositoryUrl(value: unknown): void {
+  text(value, 'expectedRemoteUrl', 256);
+  if (
+    !/^https:\/\/github\.com\/[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_.-]{1,100}$/.test(value) ||
+    ['.', '..'].includes(value.split('/').at(-1)!)
+  )
+    fail('expectedRemoteUrl must be a canonical credential-free GitHub HTTPS URL');
+}
+function repositories(value: unknown): void {
+  if (!Array.isArray(value) || value.length < 1 || value.length > WIRE_LIMITS.repositories)
+    fail('repositoryContext needs 1–8 references');
+  const ids = new Set<string>();
+  for (const raw of value) {
+    const entry = object(raw, 'repository context');
+    exact(entry, ['referenceId', 'path', 'expectedRemoteUrl'], 'repository context');
+    text(entry.referenceId, 'referenceId', 128);
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(entry.referenceId) || ids.has(entry.referenceId))
+      fail('Repository reference IDs must be unique safe identifiers');
+    ids.add(entry.referenceId);
+    repositoryPath(entry.path);
+    repositoryUrl(entry.expectedRemoteUrl);
+  }
+}
 /** Returns a safe validation message, or null. Both relay and adapter must call it. */
 export function validateCommand(action: unknown, raw: unknown): string | null {
   try {
@@ -224,6 +265,10 @@ export function validateCommand(action: unknown, raw: unknown): string | null {
     if (fields[action].includes('sessionId') && action !== 'settings.describe')
       text(args.sessionId, 'sessionId');
     switch (action) {
+      case 'repository.inspect':
+        repositoryPath(args.path);
+        repositoryUrl(args.expectedRemoteUrl);
+        break;
       case 'session.create':
         if (args.cwd !== undefined && args.workspaceId !== undefined)
           fail('create accepts cwd or workspaceId, not both');
@@ -232,6 +277,7 @@ export function validateCommand(action: unknown, raw: unknown): string | null {
         text(args.requestId, 'requestId');
         if (args.mode !== 'queue' && args.mode !== 'steer') fail('mode must be queue or steer');
         content(args.content, false);
+        if (args.repositoryContext !== undefined) repositories(args.repositoryContext);
         if (args.clientTimeZone !== undefined) {
           const zone = args.clientTimeZone as string;
           if (zone !== 'UTC' && !zone.includes('/'))

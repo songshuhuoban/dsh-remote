@@ -11,9 +11,12 @@ import {
   type Command,
   type Json,
   type RelayEvent,
+  type RepositoryInspection,
 } from '../../../packages/protocol/src/index.ts';
 import { openStore } from './store.ts';
 import { validateCommand } from './validation.ts';
+import { createGitHubService, GitHubError, type GitHubOptions } from './github.ts';
+import { githubCallback, githubRoutes } from './github-routes.ts';
 
 type Row = Record<string, string | number | null>;
 type Auth = { userId: string; controllerId: string; tokenHash: string };
@@ -26,6 +29,8 @@ type SocketData =
       ready: boolean;
       leaseEpoch: number;
       leaseExpiresAt: number;
+      lastSeenAt: number;
+      lastStatus: 'connecting' | 'online' | 'stale' | 'offline';
     }
   | {
       role: 'viewer';
@@ -46,6 +51,9 @@ export interface RelayOptions {
   staticDir?: string;
   registration?: boolean;
   secureCookies?: boolean;
+  github?: GitHubOptions;
+  heartbeatStaleMs?: number;
+  heartbeatDisconnectMs?: number;
 }
 class HttpError extends Error {
   constructor(
@@ -85,9 +93,14 @@ const json = (data: unknown, status = 200, headers: Record<string, string> = {})
 /** Creates a single-process authenticated Bun relay. No DSH execution occurs on this host. */
 export function createRelay(options: RelayOptions = {}) {
   const db = openStore(options.databasePath ?? '.data/relay.sqlite');
+  const github = createGitHubService(db, options.github);
   const leaseMs = options.leaseMs ?? 30_000;
   const sessionMs = options.sessionMs ?? 7 * 24 * 60 * 60 * 1000;
   const commandMs = options.commandMs ?? 30_000;
+  const heartbeatStaleMs = options.heartbeatStaleMs ?? 30_000;
+  const heartbeatDisconnectMs = options.heartbeatDisconnectMs ?? 60_000;
+  if (heartbeatStaleMs < 100 || heartbeatDisconnectMs <= heartbeatStaleMs)
+    throw new Error('Heartbeat deadlines must be positive and ordered');
   const allowedOrigins = new Set(
     options.allowedOrigins ?? [
       'http://localhost:5173',
@@ -104,6 +117,15 @@ export function createRelay(options: RelayOptions = {}) {
   const all = (sql: string, ...args: (string | number | null)[]) =>
     db.query(sql).all(...args) as Row[];
   const run = (sql: string, ...args: (string | number | null)[]) => db.query(sql).run(...args);
+  function connectionStatus(id: string): 'connecting' | 'online' | 'stale' | 'offline' {
+    const data = connectors.get(id)?.data;
+    if (data?.role !== 'connector') return 'offline';
+    if (Date.now() - data.lastSeenAt > heartbeatStaleMs) return 'stale';
+    return data.ready ? 'online' : 'connecting';
+  }
+  function connectorOnline(id: string): boolean {
+    return connectionStatus(id) === 'online';
+  }
   // A lost connection after dispatch has an unknown outcome, never safe automatic replay.
   run(
     "UPDATE commands SET status='indeterminate',error=?,updated_at=? WHERE status IN ('queued','dispatched')",
@@ -163,6 +185,7 @@ export function createRelay(options: RelayOptions = {}) {
     const acknowledged =
       data?.role === 'connector' &&
       data.ready &&
+      connectorOnline(instanceId) &&
       data.leaseEpoch === Number(row.epoch) &&
       data.leaseExpiresAt > Date.now();
     // Renewals keep their previously acknowledged authority until its old expiry.
@@ -182,6 +205,7 @@ export function createRelay(options: RelayOptions = {}) {
     return (
       data?.role === 'connector' &&
       data.ready &&
+      connectorOnline(id) &&
       data.leaseEpoch === epoch &&
       data.leaseExpiresAt >= expiresAt
     );
@@ -203,12 +227,12 @@ export function createRelay(options: RelayOptions = {}) {
       id: String(row.id),
       name: String(row.name),
       createdAt: Number(row.created_at),
-      online:
-        connectors.get(String(row.id))?.data.role === 'connector' &&
-        Boolean(
-          (connectors.get(String(row.id))!.data as Extract<SocketData, { role: 'connector' }>)
-            .ready,
-        ),
+      online: connectorOnline(String(row.id)),
+      status: connectionStatus(String(row.id)),
+      lastSeenAt: row.last_seen_at ?? null,
+      connectedAt: row.connected_at ?? null,
+      disconnectedAt: row.disconnected_at ?? null,
+      observedAt: Date.now(),
       bootId: row.boot_id,
       connectionEpoch: Number(row.connection_epoch),
       capabilities: JSON.parse(String(row.capabilities)),
@@ -380,6 +404,8 @@ export function createRelay(options: RelayOptions = {}) {
           path = url.pathname;
         if (path === '/health') return json({ ok: true, protocol: 1 });
         checkOrigin(req);
+        const githubReturn = await githubCallback(req, github);
+        if (githubReturn) return githubReturn;
         if (req.method === 'OPTIONS')
           return new Response(null, {
             status: 204,
@@ -410,6 +436,8 @@ export function createRelay(options: RelayOptions = {}) {
                 ready: false,
                 leaseEpoch: 0,
                 leaseExpiresAt: 0,
+                lastSeenAt: Date.now(),
+                lastStatus: 'connecting',
               },
             })
           )
@@ -493,6 +521,8 @@ export function createRelay(options: RelayOptions = {}) {
         }
         if (path.startsWith('/api/') || path === '/ws/events') {
           const auth = authenticate(req);
+          const githubResponse = await githubRoutes(req, auth, github, body);
+          if (githubResponse) return githubResponse;
           if (path === '/ws/events') {
             const after = Number(url.searchParams.get('after') ?? 0);
             if (!Number.isSafeInteger(after) || after < 0)
@@ -628,7 +658,7 @@ export function createRelay(options: RelayOptions = {}) {
               const input = await body(req);
               boundController(auth, input.controllerId);
               const connector = connectors.get(id);
-              if (!connector || connector.data.role !== 'connector' || !connector.data.ready)
+              if (!connector || connector.data.role !== 'connector' || !connectorOnline(id))
                 throw new HttpError(
                   409,
                   'INSTANCE_OFFLINE',
@@ -688,30 +718,42 @@ export function createRelay(options: RelayOptions = {}) {
               const action = input.action;
               if (!object(input.args))
                 throw new HttpError(400, 'INVALID_INPUT', 'args must be an object');
-              const validation = validateCommand(action, input.args);
+              // Validate caller-controlled args before recursive canonical hashing.
+              // Repository paths/context are exclusively resolved by the relay.
+              if (Object.hasOwn(input.args, 'repositoryContext'))
+                throw new HttpError(400, 'INVALID_ARGUMENTS', 'Repository context must be selected by reference IDs');
+              if (Object.hasOwn(input, 'repositoryId') && action !== 'repository.inspect')
+                throw new HttpError(400, 'INVALID_ARGUMENTS', 'repositoryId is only valid for repository.inspect');
+              if (Object.hasOwn(input, 'repositoryIds') && action !== 'session.prompt')
+                throw new HttpError(400, 'INVALID_ARGUMENTS', 'repositoryIds are only valid for session.prompt');
+              const validation = validateCommand(action === 'repository.inspect' ? 'session.list' : action, input.args);
               if (validation) throw new HttpError(400, 'INVALID_ARGUMENTS', validation);
-              if (
-                Number(
-                  get(
-                    "SELECT COUNT(*) AS count FROM commands WHERE user_id=? AND status='dispatched'",
-                    auth.userId,
-                  )?.count ?? 0,
-                ) >= 64
-              )
-                throw new HttpError(
-                  429,
-                  'COMMAND_QUOTA',
-                  'Too many commands awaiting acknowledgement',
-                );
-              const payload = JSON.stringify(input.args),
-                fingerprint = digest(
-                  stable({
-                    instanceId: id,
-                    controllerId: auth.controllerId,
-                    action,
-                    args: input.args,
-                  }),
-                );
+              let repositoryId: string | null = null;
+              let repositoryIds: string[] | undefined;
+              const referenceId = (value: unknown) => {
+                const id = string(value, 'repository reference ID', 128);
+                if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(id))
+                  throw new HttpError(400, 'INVALID_ARGUMENTS', 'Invalid repository reference ID');
+                return id;
+              };
+              if (action === 'repository.inspect') repositoryId = referenceId(input.repositoryId);
+              if (Object.hasOwn(input, 'repositoryIds')) {
+                if (!Array.isArray(input.repositoryIds) || input.repositoryIds.length > 8)
+                  throw new HttpError(400, 'INVALID_ARGUMENTS', 'Choose at most eight repository references');
+                repositoryIds = input.repositoryIds.map(referenceId);
+                if (new Set(repositoryIds).size !== repositoryIds.length)
+                  throw new HttpError(400, 'INVALID_ARGUMENTS', 'Repository references must be unique');
+              }
+              const fingerprint = digest(
+                stable({
+                  instanceId: id,
+                  controllerId: auth.controllerId,
+                  action,
+                  args: input.args,
+                  ...(repositoryId === null ? {} : { repositoryId }),
+                  ...(repositoryIds === undefined ? {} : { repositoryIds }),
+                }),
+              );
               const existing = get('SELECT * FROM commands WHERE id=?', commandId);
               if (existing) {
                 if (existing.user_id !== auth.userId)
@@ -724,8 +766,19 @@ export function createRelay(options: RelayOptions = {}) {
                   );
                 return json(commandView(existing));
               }
+              if (
+                Number(get("SELECT COUNT(*) AS count FROM commands WHERE user_id=? AND status='dispatched'", auth.userId)?.count ?? 0) >= 64
+              ) throw new HttpError(429, 'COMMAND_QUOTA', 'Too many commands awaiting acknowledgement');
+              let args = input.args;
+              if (repositoryId !== null)
+                args = github.inspectArguments(auth.userId, id, repositoryId);
+              if (repositoryIds !== undefined && repositoryIds.length > 0)
+                args = { ...args, repositoryContext: github.repositoryContext(auth.userId, id, repositoryIds) };
+              const enrichedValidation = validateCommand(action, args);
+              if (enrichedValidation) throw new HttpError(400, 'INVALID_ARGUMENTS', enrichedValidation);
+              const payload = JSON.stringify(args);
               const connector = connectors.get(id);
-              if (!connector || connector.data.role !== 'connector' || !connector.data.ready)
+              if (!connector || connector.data.role !== 'connector' || !connectorOnline(id))
                 throw new HttpError(409, 'INSTANCE_OFFLINE', 'DSH instance is offline');
               let leaseEpoch: number | null = null;
               if (isWriteAction(action)) {
@@ -745,7 +798,7 @@ export function createRelay(options: RelayOptions = {}) {
               }
               const now = Date.now();
               run(
-                'INSERT INTO commands(id,request_id,instance_id,user_id,controller_id,action,payload,fingerprint,lease_epoch,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+                'INSERT INTO commands(id,request_id,instance_id,user_id,controller_id,action,payload,fingerprint,lease_epoch,status,created_at,updated_at,repository_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
                 commandId,
                 requestId,
                 id,
@@ -758,6 +811,7 @@ export function createRelay(options: RelayOptions = {}) {
                 'dispatched',
                 now,
                 now,
+                repositoryId,
               );
               connector.send(
                 JSON.stringify({
@@ -768,7 +822,7 @@ export function createRelay(options: RelayOptions = {}) {
                   connectionEpoch: connector.data.epoch,
                   leaseEpoch,
                   action,
-                  args: input.args,
+                  args,
                   expiresAt: Math.min(
                     now + commandMs,
                     isWriteAction(action) ? leaseView(id)!.expiresAt : now + commandMs,
@@ -793,7 +847,7 @@ export function createRelay(options: RelayOptions = {}) {
         }
         throw new HttpError(404, 'NOT_FOUND', 'Route not found');
       } catch (error) {
-        if (error instanceof HttpError)
+        if (error instanceof HttpError || error instanceof GitHubError)
           return json({ error: { code: error.code, message: error.message } }, error.status);
         console.error('Relay request failed', error);
         return json(
@@ -859,7 +913,8 @@ export function createRelay(options: RelayOptions = {}) {
           old.close(4001, 'Connector replaced');
         }
         run(
-          'UPDATE instances SET connection_epoch=connection_epoch+1 WHERE id=?',
+          'UPDATE instances SET connection_epoch=connection_epoch+1,connected_at=? WHERE id=?',
+          Date.now(),
           ws.data.instanceId,
         );
         ws.data.epoch = Number(
@@ -867,6 +922,9 @@ export function createRelay(options: RelayOptions = {}) {
             .connection_epoch,
         );
         connectors.set(ws.data.instanceId, ws);
+        emit(ws.data.userId, ws.data.instanceId, 'instance.status', {
+          status: 'connecting', connectionEpoch: ws.data.epoch,
+        });
         ws.send(
           JSON.stringify({
             v: 1,
@@ -921,6 +979,9 @@ export function createRelay(options: RelayOptions = {}) {
               ws.data.instanceId,
             );
             ws.data.ready = true;
+            ws.data.lastSeenAt = Date.now();
+            ws.data.lastStatus = 'online';
+            run('UPDATE instances SET last_seen_at=? WHERE id=?', ws.data.lastSeenAt, ws.data.instanceId);
             emit(ws.data.userId, ws.data.instanceId, 'instance.online', {
               bootId,
               capabilities: frame.capabilities as string[],
@@ -973,7 +1034,9 @@ export function createRelay(options: RelayOptions = {}) {
               return;
             }
             if (typeof frame.ok !== 'boolean') throw new Error('Invalid result');
-            const error = frame.ok
+            let ok = frame.ok;
+            let result = frame.result ?? null;
+            let error = ok
               ? null
               : object(frame.error)
                 ? {
@@ -981,14 +1044,36 @@ export function createRelay(options: RelayOptions = {}) {
                     message: string(frame.error.message, 'error message', 2000),
                   }
                 : { code: 'DSH_ERROR', message: 'DSH command failed' };
-            run(
-              'UPDATE commands SET status=?,result=?,error=?,updated_at=? WHERE id=?',
-              frame.ok ? 'succeeded' : 'failed',
-              frame.ok ? JSON.stringify(frame.result ?? null) : null,
-              error ? JSON.stringify(error) : null,
-              Date.now(),
-              id,
-            );
+            db.transaction(() => {
+              if (row.action === 'repository.inspect') {
+                // The target is persisted at admission, never supplied by result data.
+                if (typeof row.repository_id !== 'string') {
+                  ok = false;
+                  error = { code: 'REPOSITORY_VERIFICATION_MISMATCH', message: 'Inspection has no bound repository reference' };
+                } else {
+                  if (ok) {
+                    try {
+                      github.recordInspection(String(row.user_id), String(row.instance_id), row.repository_id, result);
+                      // Do not persist any extra keys supplied by the Host.
+                      const value = result as RepositoryInspection;
+                      result = { path: value.path, name: value.name, remote: { owner: value.remote.owner, name: value.remote.name, url: value.remote.url }, branch: value.branch, commit: value.commit };
+                    } catch {
+                      ok = false;
+                      error = { code: 'REPOSITORY_VERIFICATION_MISMATCH', message: 'Host inspection did not match the bound repository reference' };
+                    }
+                  }
+                  if (!ok) github.markInspectionStale(String(row.user_id), String(row.instance_id), row.repository_id);
+                }
+              }
+              run(
+                'UPDATE commands SET status=?,result=?,error=?,updated_at=? WHERE id=?',
+                ok ? 'succeeded' : 'failed',
+                ok ? JSON.stringify(result) : null,
+                error ? JSON.stringify(error) : null,
+                Date.now(),
+                id,
+              );
+            })();
             emit(
               ws.data.userId,
               ws.data.instanceId,
@@ -1077,6 +1162,14 @@ export function createRelay(options: RelayOptions = {}) {
             return;
           }
           if (frame.type === 'ping') {
+            if (frame.connectionEpoch !== ws.data.epoch) throw new Error('Stale heartbeat');
+            ws.data.lastSeenAt = Date.now();
+            run('UPDATE instances SET last_seen_at=? WHERE id=?', ws.data.lastSeenAt, ws.data.instanceId);
+            if (ws.data.lastStatus !== 'online')
+              emit(ws.data.userId, ws.data.instanceId, 'instance.status', {
+                status: 'online', lastSeenAt: ws.data.lastSeenAt, connectionEpoch: ws.data.epoch,
+              });
+            ws.data.lastStatus = 'online';
             ws.send(JSON.stringify({ v: 1, type: 'pong' }));
             return;
           }
@@ -1096,6 +1189,7 @@ export function createRelay(options: RelayOptions = {}) {
         }
         if (connectors.get(ws.data.instanceId) !== ws) return;
         connectors.delete(ws.data.instanceId);
+        run('UPDATE instances SET disconnected_at=? WHERE id=?', Date.now(), ws.data.instanceId);
         finishPending(
           ws.data.instanceId,
           'CONNECTOR_DISCONNECTED',
@@ -1109,6 +1203,18 @@ export function createRelay(options: RelayOptions = {}) {
   });
   const timer = setInterval(() => {
     const now = Date.now();
+    for (const ws of connectors.values()) {
+      if (ws.data.role !== 'connector') continue;
+      const status = connectionStatus(ws.data.instanceId);
+      if (ws.data.lastStatus !== status) {
+        ws.data.lastStatus = status;
+        emit(ws.data.userId, ws.data.instanceId, 'instance.status', {
+          status, lastSeenAt: ws.data.lastSeenAt, connectionEpoch: ws.data.epoch,
+        });
+      }
+      if (now - ws.data.lastSeenAt > heartbeatDisconnectMs)
+        ws.close(4002, 'DSH Host heartbeat expired');
+    }
     for (const ws of viewers)
       if (ws.data.role === 'viewer' && ws.data.expiresAt <= now) ws.close(4003, 'Session expired');
     for (const row of all(
@@ -1133,7 +1239,7 @@ export function createRelay(options: RelayOptions = {}) {
       );
     }
     for (const [ip, limit] of attempts) if (limit.until < now) attempts.delete(ip);
-  }, 1000);
+  }, Math.min(1000, heartbeatStaleMs));
   timer.unref();
   return {
     server,

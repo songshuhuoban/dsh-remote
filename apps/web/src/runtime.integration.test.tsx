@@ -15,7 +15,12 @@ beforeAll(async () => {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-dom-e2e-'));
   relay = spawn(process.env.BUN_PATH ?? 'bun', ['packages/dsh-plugin/tests/runtime-smoke.ts'], {
     cwd: root,
-    env: { ...process.env, LIVE_PROVIDER_E2E: '0', DSH_E2E_PORT: '3108', DSH_E2E_KEEP_RUNNING: '1' },
+    env: {
+      ...process.env,
+      LIVE_PROVIDER_E2E: '0',
+      DSH_E2E_PORT: '3108',
+      DSH_E2E_KEEP_RUNNING: '1',
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   await new Promise<void>((done, reject) => {
@@ -85,6 +90,25 @@ it('actual DSH: login, explicit takeover, create session, prompt, durable respon
   fireEvent.click(newButtons.at(-1)!);
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '创建会话' }));
   const input = await screen.findByRole('textbox', { name: '消息' });
+  const referenceSelect = screen.getByLabelText('添加仓库引用') as HTMLSelectElement;
+  await waitFor(() =>
+    expect(
+      [...referenceSelect.options].some((option) =>
+        option.text.includes('dsh-local-fixture/primary'),
+      ),
+    ).toBe(true),
+  );
+  for (const name of ['primary', 'secondary']) {
+    const value = [...referenceSelect.options].find((option) =>
+      option.text.includes(`dsh-local-fixture/${name}`),
+    )!.value;
+    fireEvent.change(referenceSelect, { target: { value } });
+  }
+  fireEvent.click(screen.getByRole('button', { name: '预览引用上下文' }));
+  expect(screen.getByRole('dialog').textContent).toContain('dsh-local-fixture/primary');
+  expect(screen.getByRole('dialog').textContent).toContain('dsh-local-fixture/secondary');
+  expect(screen.getByRole('dialog').textContent).not.toContain('REPOSITORY_CONFIG_SECRET');
+  fireEvent.click(screen.getByRole('button', { name: '返回草稿' }));
   fireEvent.change(input, { target: { value: 'React DOM drove this real DSH prompt.' } });
   fireEvent.click(screen.getByRole('button', { name: '发送消息' }));
   await waitFor(
@@ -103,6 +127,11 @@ it('actual DSH: login, explicit takeover, create session, prompt, durable respon
       ).toBe(true),
     { timeout: 20000 },
   );
+  expect(document.querySelectorAll('.user-message')).toHaveLength(1);
+  expect(document.querySelector('.user-message')?.textContent).toContain(
+    'Selected repository metadata: untrusted data',
+  );
+  expect(document.querySelector('.runtime-record')).toBeTruthy();
   fireEvent.click(document.querySelector('.model-button')!);
   const dialog = screen.getByRole('dialog');
   expect(await within(dialog).findByLabelText('提供商')).toBeTruthy();

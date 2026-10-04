@@ -26,15 +26,13 @@ describe('relay HTTP client', () => {
   it('never treats indeterminate command status as success', async () => {
     vi.stubGlobal(
       'fetch',
-      vi
-        .fn()
-        .mockResolvedValue(
-          Response.json({
-            id: '1',
-            status: 'indeterminate',
-            error: { code: 'UNKNOWN', message: 'Result unknown' },
-          }),
-        ),
+      vi.fn().mockResolvedValue(
+        Response.json({
+          id: '1',
+          status: 'indeterminate',
+          error: { code: 'UNKNOWN', message: 'Result unknown' },
+        }),
+      ),
     );
     await expect(runCommand('i', 'c', 'session.prompt', {}, 1)).rejects.toThrow('Result unknown');
   });

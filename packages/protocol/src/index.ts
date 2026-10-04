@@ -10,6 +10,7 @@ export const READ_ACTIONS = [
   'capabilities',
 ] as const;
 export const WRITE_ACTIONS = [
+  'repository.inspect',
   'session.create',
   'session.prompt',
   'session.cancel',
@@ -41,6 +42,11 @@ export interface Instance {
   id: string;
   name: string;
   online: boolean;
+  status?: 'connecting' | 'online' | 'stale' | 'offline';
+  lastSeenAt?: number | null;
+  connectedAt?: number | null;
+  disconnectedAt?: number | null;
+  observedAt?: number;
   bootId: string | null;
   connectionEpoch: number;
   lease: Lease | null;
@@ -122,3 +128,17 @@ export const CONNECTOR_EVENT_KINDS = [
   'approval.requested',
   'approval.settled',
 ] as const;
+
+/** Relay-resolved owner/instance-bound references. Never accept these from browsers. */
+export interface RepositoryContext {
+  referenceId: string;
+  path: string;
+  expectedRemoteUrl: string;
+}
+export interface RepositoryInspection {
+  path: string;
+  name: string;
+  remote: { owner: string; name: string; url: string };
+  branch: string | null;
+  commit: string | null;
+}

@@ -47,11 +47,21 @@ class Instance {
     required this.online,
     required this.lease,
     required this.capabilities,
-  });
+    String? status,
+    this.lastSeenAt,
+  }) : status = status ?? (online ? 'online' : 'offline');
   factory Instance.fromJson(JsonMap json) => Instance(
     id: json['id'] as String,
     name: json['name'] as String,
-    online: json['online'] == true,
+    online: json['status'] == null
+        ? json['online'] == true
+        : json['status'] == 'online',
+    status: json['status']?.toString(),
+    lastSeenAt: json['lastSeenAt'] is num
+        ? DateTime.fromMillisecondsSinceEpoch(
+            (json['lastSeenAt'] as num).toInt(),
+          )
+        : null,
     lease: json['lease'] is Map ? Lease.fromJson(object(json['lease'])) : null,
     capabilities: (json['capabilities'] as List? ?? [])
         .map((v) => v.toString())
@@ -60,12 +70,20 @@ class Instance {
   final String id;
   final String name;
   final bool online;
+  final String status;
+  final DateTime? lastSeenAt;
+  String get statusLabel => switch (status) {
+    'connecting' => 'Connecting',
+    'online' => 'Online',
+    'stale' => 'Stale · read-only',
+    _ => 'Offline',
+  };
   final Lease? lease;
   final List<String> capabilities;
   bool heldBy(String? controller) =>
       lease != null && !lease!.expired && lease!.controllerId == controller;
   bool controlledBy(String? controller) =>
-      online && heldBy(controller) && !lease!.pending;
+      status == 'online' && online && heldBy(controller) && !lease!.pending;
 }
 
 class RelayEvent {
@@ -208,4 +226,45 @@ class StreamText {
       incomplete = true;
     }
   }
+}
+
+/// Immutable relay reference. Authorization and host observation are independent.
+class RepositoryReference {
+  RepositoryReference(this.json);
+  final JsonMap json;
+  String get id => json['id'].toString();
+  String get instanceId => json['instanceId'].toString();
+  String get fullName => json['fullName']?.toString() ?? 'Repository';
+  String get localPath => json['localPath']?.toString() ?? '';
+  String get localState => json['localState']?.toString() ?? 'declared';
+  String get authorization => json['authorization']?.toString() ?? 'manual';
+  bool get selected => json['selected'] == true;
+  bool get verified => localState == 'verified';
+  JsonMap get contextPreview => {
+    'repository': fullName,
+    'instanceId': instanceId,
+    'branch': json['branch'],
+    'head': json['head'],
+    'localPath': localPath,
+    'localState': localState,
+    'verifiedAt': json['verifiedAt'],
+    'sourceTrust': 'untrusted_repository_data',
+  };
+}
+
+String? repositorySelectionError(
+  List<RepositoryReference> references,
+  String instanceId,
+) {
+  if (references.length > 8) return 'Choose at most 8 repository references.';
+  if (references.map((r) => r.id).toSet().length != references.length) {
+    return 'Duplicate repository references are not allowed.';
+  }
+  if (references.any((r) => r.instanceId != instanceId)) {
+    return 'Repository references must belong to this instance.';
+  }
+  if (references.any((r) => !r.verified)) {
+    return 'Verify stale or declared references, or remove them before sending.';
+  }
+  return null;
 }

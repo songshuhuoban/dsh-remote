@@ -3,6 +3,10 @@ import { ACTIONS, type Action } from '../packages/protocol/src/index.ts';
 import { validateCommand, WIRE_LIMITS } from '../packages/protocol/src/validation.ts';
 const valid: Record<Action, Record<string, unknown>> = {
   capabilities: {},
+  'repository.inspect': {
+    path: '/workspace/project',
+    expectedRemoteUrl: 'https://github.com/octo/project',
+  },
   'session.list': {},
   'session.read': { sessionId: 's' },
   'session.projections': { sessionId: 's' },
@@ -286,5 +290,40 @@ describe('Shared relay/Host command wire validation (unit tests, not DSH E2E)', 
       },
     ])
       rejects('settings.update', args);
+  });
+  test('repository references require safe paths, canonical URLs and bounded relay-resolved context', () => {
+    const reference = {
+      referenceId: 'r-1',
+      path: '/workspace/project',
+      expectedRemoteUrl: 'https://github.com/octo/project',
+    };
+    accepts('session.prompt', { ...valid['session.prompt'], repositoryContext: [reference] });
+    accepts('session.prompt', {
+      ...valid['session.prompt'],
+      repositoryContext: Array.from({ length: 8 }, (_, i) => ({
+        ...reference,
+        referenceId: `r-${i}`,
+      })),
+    });
+    for (const context of [
+      [],
+      Array.from({ length: 9 }, (_, i) => ({ ...reference, referenceId: `r-${i}` })),
+      [reference, { ...reference }],
+      [{ ...reference, token: 'secret' }],
+      [{ ...reference, referenceId: '</context>' }],
+      [{ ...reference, path: '/workspace/../secret' }],
+      [{ ...reference, path: 'relative' }],
+      [{ ...reference, expectedRemoteUrl: 'https://TOKEN@github.com/octo/project' }],
+      [{ ...reference, expectedRemoteUrl: 'https://github.com/octo/project?secret' }],
+      [{ ...reference, expectedRemoteUrl: 'git@github.com:octo/project' }],
+    ])
+      rejects('session.prompt', { ...valid['session.prompt'], repositoryContext: context });
+    for (const args of [
+      { path: '/repo' },
+      { path: '/repo', expectedRemoteUrl: 'file:///repo' },
+      { path: '/repo\nInjected', expectedRemoteUrl: reference.expectedRemoteUrl },
+      { path: '/repo', expectedRemoteUrl: reference.expectedRemoteUrl, clone: true },
+    ])
+      rejects('repository.inspect', args);
   });
 });

@@ -34,6 +34,16 @@ The bundled overlay reads `DSH_REMOTE_RELAY_URL`, `DSH_REMOTE_CONNECTOR_TOKEN_FI
 - Source entry validation is shared with the relay. Mutation admission checks the currently acknowledged writer fence immediately before calling the DSH public method. A method admitted before a transfer may finish afterwards; a new fence does not cancel the old turn automatically.
 - The connector keeps command identities/results durably. A crash after admission but before result storage is reported indeterminate instead of blindly executing it again. Never change its journal to another instance.
 
+## Existing GitHub repository references
+
+`repository.inspect` is a writer-lease-gated, offline inspection of a pre-existing local checkout. The relay resolves a user-owned, instance-bound reference ID to its canonical path and expected GitHub URL. The Host requires the exact working-tree root within `allowedWorkspaceRoots`; it does not discover parent repositories, clone, fetch, check out branches, or use GitHub credentials. A successful local inspection establishes a usable local mapping, not a GitHub OAuth grant. Manual mappings remain labeled manual.
+
+Before each prompt, the Host rechecks up to eight selected mappings and appends only the reference ID, repository name, canonical local path, branch, local HEAD object ID and canonical GitHub link. The section explicitly marks all values as untrusted metadata. No README, instructions, file contents, raw remote configuration, credentials, hooks or credential helpers enter this section. The Host strips the relay-only reference field before calling DSH. All mappings are rechecked synchronously after asynchronous Git inspection, and the writer fence is checked again immediately before prompt admission.
+
+Inspection runs fixed Git arguments without a shell, with bounded output, a timeout and a scrubbed environment. Git metadata must also stay within the allowed roots. Path traversal, symlink aliases, configuration includes, `core.worktree` redirects, non-files ref storage, credential-bearing origins and unsafe branch display strings fail closed. Linked worktrees work when their shared Git directory is also inside an allowed root. Inspection resolves local HEAD refs without reading object contents or triggering partial-clone lazy fetching; it is not an object-integrity audit or a cleanliness check. Supported origins are credential-free GitHub HTTPS, `git@github.com:owner/repo.git`, and `ssh://git@github.com/owner/repo.git`; returned links always use HTTPS. Branch display names are limited to 255 ASCII letters, digits, dots, underscores, slashes and hyphens, with Git-invalid patterns rejected.
+
+An operator must prepare private checkouts through their existing secure local Git workflow. This version deliberately does not deliver GitHub tokens to hosts or claim that any repository has been cloned.
+
 ## Verification
 
 `bun test packages/dsh-plugin/tests/adapter.test.ts` runs focused adapter safety tests. This alone does not prove the product workflow.

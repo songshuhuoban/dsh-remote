@@ -58,7 +58,13 @@ export function mergeEvents(
 }
 export function eventMessage(event: WireEvent): { role: string; text: string } | null {
   const data = asRecord(event.data);
-  if (event.type === 'user/message') return { role: '你', text: contentText(data.content) };
+  if (event.type === 'user/message') {
+    const source = asRecord(data.source).kind;
+    return {
+      role: source && source !== 'user' ? '运行时上下文' : '你',
+      text: contentText(data.content),
+    };
+  }
   if (event.type === 'assistant/message')
     return { role: 'DSH', text: contentText(asRecord(data.message).content) };
   if (event.type === 'tool/result')

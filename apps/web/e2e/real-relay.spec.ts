@@ -76,3 +76,66 @@ test('real relay: mobile viewport, responsive navigation and invalid sign in', a
     fullPage: true,
   });
 });
+
+for (const mobile of [false, true])
+  for (const colorScheme of ['light', 'dark'] as const) {
+    test(`Harness adoption: ${mobile ? 'mobile' : 'desktop'} ${colorScheme}, repository mapping and recovery exits`, async ({
+      page,
+    }, testInfo) => {
+      await page.setViewportSize(
+        mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 },
+      );
+      await page.emulateMedia({ colorScheme });
+      await page.goto('/');
+      await page.getByRole('button', { name: '创建账户', exact: true }).click();
+      await page
+        .getByLabel('邮箱', { exact: true })
+        .fill(`adoption-${mobile}-${colorScheme}-${Date.now()}@example.test`);
+      await page.getByLabel('密码', { exact: true }).fill(password);
+      await page.getByRole('button', { name: '创建账户', exact: true }).click();
+      await page.getByRole('button', { name: '连接新实例', exact: true }).last().click();
+      await page.getByLabel('实例名称').fill('Repository workstation');
+      await page.getByRole('button', { name: '创建实例', exact: true }).click();
+      await page.getByRole('button', { name: '我已保存，进入实例' }).click();
+      if (mobile) {
+        await page.getByRole('button', { name: '打开导航' }).click();
+        await expect(page.locator('.sidebar.open')).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.sidebar')).toBeHidden();
+        await page.getByRole('button', { name: '打开导航' }).click();
+      }
+      await page.getByRole('button', { name: 'GitHub 仓库', exact: true }).click();
+      await expect(page.getByText('此部署尚未配置 GitHub App', { exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: '连接 GitHub', exact: true })).toBeDisabled();
+      await page.getByRole('button', { name: '手动映射', exact: true }).click();
+      await page.getByLabel('GitHub 仓库 URL').fill('https://github.com/example/review-worktree');
+      await page.getByLabel('已有工作树绝对路径').fill('/allowed/../invalid');
+      await page.getByRole('button', { name: '保存映射', exact: true }).click();
+      await expect(page.getByRole('dialog')).toContainText('请输入已有工作树的规范绝对路径');
+      await page.getByLabel('已有工作树绝对路径').fill('/allowed/existing-worktree');
+      await page.getByRole('button', { name: '保存映射', exact: true }).click();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.getByText('待主机验证 · 手动声明')).toBeVisible();
+      await expect(page.getByRole('button', { name: '验证工作树' })).toBeDisabled();
+      await page.getByRole('button', { name: '验证工作树' }).scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: testInfo.outputPath('adopted-local-reference-scrolled.png'),
+        animations: 'disabled',
+        fullPage: true,
+      });
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      ).toBe(true);
+      await page.getByRole('button', { name: '返回会话' }).click();
+      if (mobile) await page.getByRole('button', { name: '打开导航' }).click();
+      await page.getByRole('button', { name: '实例状态', exact: true }).click();
+      await expect(page.getByRole('dialog')).toContainText('最近心跳：尚未观测到');
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await page.screenshot({
+        path: testInfo.outputPath('adopted-observer-console.png'),
+        animations: 'disabled',
+        fullPage: true,
+      });
+    });
+  }

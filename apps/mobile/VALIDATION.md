@@ -1,37 +1,55 @@
 # Mobile verification record
 
-Verified 2026-10-04 with official Flutter 3.47.6 / Dart 3.13.5 on Linux.
+Verified 2026-10-04 with official Flutter 3.47.6 / Dart 3.13.5 on Linux. This record covers the reviewed-prototype adoption and its real native transport, not a native-device or live-provider release acceptance.
 
-## Passed
+## Final unchanged-source checks
 
-- Flutter analyzer: **zero issues** on final source.
-- Default Flutter suite: **9 passed**, with the separately exercised real-host integration test skipped unless its fixture is explicitly supplied.
-- Actual Flutter-widget integration against the real Bun relay, Bun connector, and pinned upstream DSH Node Host: **1 passed in 42 seconds**. This is a full headless Flutter renderer and native Dart network path, not a UI mock or simulated adapter.
-- Functional integration assertions: login; passive session list and older-history cursor page; explicit writer takeover; UUID-addressed session creation; prompt admission; rendered durable assistant answer; pending queue edit, prioritize-next-step, and removal; exact request/boot/hash-bound approval; revision-checked permission update; and restart restoration with the same authenticated controller identity.
-- Independent native Dart HTTP/WebSocket smoke against an isolated real relay: registration, unique controllers, offline instance/token creation, same-account fleet visibility, cross-tenant list and direct-state isolation, authenticated authoritative WebSocket snapshot, and logout revocation.
-- Unit coverage: remote HTTPS validation, active/expired/pending lease gating, command UUID uniqueness, indeterminate command outcomes, exact approval call-ID/tool-name binding, durable-history deduplication, and partial/duplicate stream chunks.
-- A 430×920 headless Flutter render with actual SDK Roboto/MaterialIcons was inspected. It has readable chat cards and controls with no reported overflow. This is not a native-device screenshot.
+- Flutter analyzer: **zero issues**
+- Default Flutter suite: **27 passed**, one opt-in real-host test skipped without its fixture
+- Actual Flutter-widget integration against the real Bun relay, Bun connector and pinned upstream DSH Node Host: **1 passed in 47 seconds**
+- Three actual headless Flutter captures inspected at **430 × 920**: [light conversation](evidence/conversation-light.png), [dark conversation](evidence/conversation-dark.png), [repository context preview](evidence/context-preview-light.png)
+- Deterministic portrait layout/interaction coverage at **390 × 844**, in light and dark themes, reported no overflow
 
-The full functional test uses the upstream project's local scripted model endpoint, returning `REAL_DSH_PIPELINE_OK`. No paid/live provider is exercised. The fixture launcher explicitly forces `LIVE_PROVIDER_E2E=0` so an ambient environment setting cannot change that default.
+Logs: [analyzer](evidence/analyze.log), [default tests](evidence/default-tests.log), [real host](evidence/real-host-widget.log). Source hashes are recorded in `evidence/source-sha256.json`.
 
-## Not run / environment limits
+## What passed
 
-- Android APK build and Android emulator/device execution: `flutter doctor -v` reports **Unable to locate Android SDK**. No SDK licenses were accepted and no Android SDK was installed.
-- iOS compilation, signing, simulator, and device execution require macOS/Xcode, unavailable in this Linux environment.
-- Actual Android Keystore / iOS Keychain persistence, native file-picker interaction, native app lifecycle behavior, and platform-specific visual QA remain unverified. Secure storage is implemented and configured; the widget integration substitutes only this OS boundary with ephemeral memory.
-- A production live-provider DSH run is not claimed.
+The actual-host widget test drives sign-in; passive session list and backwards history; explicit writer takeover; UUID session creation; GitHub-unconfigured/native-web-connect guidance; actual local repository list and fenced verification; two reference selections and metadata preview; a prompt with top-level repository IDs; durable metadata-only context in actual DSH history with no fixture file/config secrets; real assistant output; queue edit, next-step prioritization and removal; request/boot/hash-bound approval; revision-checked permission update; and restoration with the same authenticated controller identity.
+
+Default tests cover the existing URL/TLS, lease, approval, stream and history rules plus:
+
+- Authoritative stale state overrides a cached online flag and blocks writes before POST; a disconnected stream remains read-only
+- Repository inspect uses empty arguments and a top-level reference ID; prompts use unique top-level IDs, capped at eight, without raw repository context
+- Declared/stale references cannot be attached; metadata preview is whitelisted and excludes credential/content fields
+- Canonical local paths, explicit manual mapping, mapping-dialog cancellation, multi-GitHub selections across exact discovery pages, native OAuth limitation and empty/unconfigured recovery
+- Drawer dismissal, draft/reference removal and stale-state editing leave mutation authority unchanged
+- Submission uncertainty retains the original ID/body; a deterministic 4xx rejection becomes failed; a query 404 never resubmits
+- The bounded OS-secure unresolved-command journal is saved before dispatch; write failure/full capacity reject safely without POST
+- Store recreation restores original IDs and blocks fresh mutation IDs until reconciliation; journal records are account/server scoped and contain no attachment payloads
+- Cancelling during journal persistence prevents dispatch and safely removes the known-not-dispatched entry
+
+## Visual scope
+
+The Flutter design adapts the approved prototype and pinned upstream DSH semantic colors and geometry: neutral light/dark surfaces, business blue, restrained text weights, a native drawer/header, conversation rows, warning approval cards, removable horizontal repository chips and a rounded composer. Error/status recovery is in the layout rather than overlaying composer actions. Native touch targets remain at least normal Material size.
+
+The headless captures load official SDK Roboto/MaterialIcons and the installed Linux DejaVu Sans Mono because `flutter_tester` has no system font fallback. Theme captures wait for both theme and nested Material text transitions. This verifies a real Flutter renderer, not Android/iOS screen pixels.
+
+## Boundaries and remaining checks
+
+- The real-host test uses the upstream project's local scripted model endpoint. The launcher forces **LIVE_PROVIDER_E2E=0**; no paid/live provider was used
+- The widget test substitutes only the OS storage boundary with ephemeral memory for credentials and the command journal. Actual Android Keystore/iOS Keychain persistence, locked-device behavior, platform lifecycle, native file picker and device accessibility require device testing
+- Android SDK is unavailable locally, so the final adoption's APK build is delegated to hosted CI. A prior baseline APK build is not proof that this new source builds
+- iOS compilation, signing and simulator/device execution require macOS/Xcode, unavailable here
+- Live GitHub consent, deployment secrets, organization policy and callback acceptance were not performed. Native OAuth initiation is intentionally unsupported; connection must occur through the signed-in web app
+- Historical image/file descriptors remain labels plus raw details; inline historical image thumbnails are not implemented
+- Drafts and full submitted bodies are memory-only. Only bounded unresolved identifiers are journaled securely; restored commands have read-only query recovery and no payload retry. A 404 alone does not resolve a potentially in-flight command
 
 ## Reproduce
 
 ```sh
-flutter analyze
-flutter test
-# Real-host test after preparing the pinned upstream checkout:
-DSH_UPSTREAM=/absolute/path/to/prepared/upstream tool/run_real_host_tests.sh
-# Real relay transport smoke; this creates only synthetic test accounts/records:
-dart tool/relay_smoke.dart http://127.0.0.1:3000
+CI=true flutter analyze
+CI=true flutter test
+DSH_UPSTREAM=/absolute/path/to/prepared/upstream DSH_E2E_PORT=3188 tool/run_real_host_tests.sh
 ```
 
-The real-host launcher starts and stops its isolated fixture itself, creates local ignored evidence under `.tools/test-data`, and runs Flutter with an explicit one-message page size to exercise backwards paging. The normal app page size is 25 messages.
-
-In this restricted workspace, the official Flutter tool was compiled offline from its downloaded official source and invoked with CI mode, workspace-local HOME/XDG_CONFIG_HOME/PUB_CACHE, and analytics disabled. CI mode avoids the SDK's unrelated Azure metadata probe; network/security restrictions were not relaxed.
+The isolated fixture launcher starts and stops its relay/connector/DSH host, uses a one-message history page to exercise paging, and writes ignored working evidence under `.tools/test-data`. Default app history pages contain 25 messages. In this restricted workspace the official Flutter source tool is compiled offline and uses workspace-local HOME/PUB_CACHE with CI mode and analytics disabled. No denied metadata endpoint or browser restriction was bypassed.

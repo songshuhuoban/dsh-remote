@@ -1,5 +1,5 @@
 import { defineConfig } from '@playwright/test';
-import { mkdtempSync, existsSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,9 +15,8 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:3107',
     launchOptions: {
-      executablePath:
-        process.env.PLAYWRIGHT_EXECUTABLE_PATH ??
-        (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined),
+      // Default to the browser revision installed by the locked Playwright.
+      executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH,
       args: ['--no-sandbox', '--disable-dev-shm-usage'],
     },
     screenshot: 'only-on-failure',

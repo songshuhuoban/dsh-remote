@@ -25,6 +25,12 @@ let stopped = false,
   instanceId = '';
 let lease: { epoch: number; expiresAt: number; controllerId: string | null } | null = null;
 const pending = new Set<string>();
+let heartbeatNonce = 0;
+const heartbeatTimer = setInterval(() => {
+  if (welcomed && !stopped)
+    output({ type: 'heartbeat', connectionEpoch, nonce: ++heartbeatNonce });
+}, 10_000);
+heartbeatTimer.unref();
 function output(value: unknown): void {
   process.stdout.write(JSON.stringify(value) + '\n');
 }
@@ -87,6 +93,7 @@ function connect(): void {
         attempt = 0;
         lease = null;
         output({ type: 'connection', online: true, connectionEpoch, instanceId });
+        output({ type: 'heartbeat', connectionEpoch, nonce: ++heartbeatNonce });
         for (const event of journal!.events()) send(event);
         for (const result of journal!.results()) send({ ...result, connectionEpoch });
       } else if (frame.type === 'result.ack') {
@@ -196,6 +203,9 @@ input.on('line', (line) => {
         throw new Error('Missing connector configuration');
       journal = new Journal(config.journalPath);
       connect();
+    } else if (frame.type === 'heartbeat.ack') {
+      if (welcomed && frame.connectionEpoch === connectionEpoch && frame.nonce === heartbeatNonce)
+        send({ v: 1, type: 'ping', connectionEpoch });
     } else if (frame.type === 'lease.ack') {
       if (
         welcomed &&
@@ -225,6 +235,7 @@ input.on('line', (line) => {
 function shutdown(code = 0): void {
   if (stopped) return;
   stopped = true;
+  clearInterval(heartbeatTimer);
   if (retry) clearTimeout(retry);
   socket?.close();
   input.close();
