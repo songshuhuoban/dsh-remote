@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    "types": ["bun"],
+    "strict": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "jsx": "react-jsx"
+  },
+  "include": [
+    "apps/server/src/**/*.ts",
+    "packages/protocol/src/**/*.ts",
+    "packages/connector/src/**/*.ts",
+    "tests/**/*.ts",
+    "packages/dsh-plugin/src/**/*.ts"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "scope": "real Bun relay + real connector; synthetic Host stdio stand-in; no DSH/model/client E2E",
+  "submissionStatus": 202,
+  "statusAfterReconnect": "succeeded",
+  "identicalRetryStatus": "succeeded",
+  "hostDispatchCount": 1
+}

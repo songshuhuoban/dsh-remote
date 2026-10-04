@@ -1,0 +1,6 @@
+{
+  "scope": "adapter unit-level synthetic Host stand-in; not DSH E2E",
+  "fenceRevokedDuringRead": true,
+  "outcome": "rejected",
+  "dispatchCount": 0
+}

@@ -1,0 +1,1 @@
+{"name":"@dsh-remote/plugin","version":"0.1.0","type":"module","main":"dist/index.js","files":["dist","cordis.patch.yml"],"dsh":{"bundle":{"patch":"./cordis.patch.yml"}},"scripts":{"build":"bun build src/index.ts --target=node --format=esm --outfile=dist/index.js"},"peerDependencies":{"@deepseek-ai/cordis":"*"}}

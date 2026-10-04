@@ -1,0 +1,13 @@
+{
+  "scope": "isolated loopback Bun relay, synthetic identities, in-memory SQLite, connector protocol stand-in; no DSH/model/UI E2E",
+  "defaultRegistrationStatus": 403,
+  "offlineLeaseStatus": 409,
+  "leaseWithoutConnectorAckStatus": 409,
+  "leaseWithoutConnectorAckCode": "FENCE_PENDING",
+  "mutationWhileFencePendingStatus": 409,
+  "leaseWithConnectorAckStatus": 200,
+  "confirmedLeasePending": false,
+  "logoutStatus": 200,
+  "leaseRemainsLiveAfterLogout": false,
+  "oldTokenAfterLogoutStatus": 401
+}

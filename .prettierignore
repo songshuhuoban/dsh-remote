@@ -1,0 +1,6 @@
+.tools/
+node_modules/
+apps/mobile/
+packages/dsh-plugin/dist/
+apps/web/dist/
+bun.lock

@@ -1,0 +1,17 @@
+{
+  "kind": "real-dsh-multi-user-multi-instance",
+  "upstreamCommit": "5badb15009ae1756c3afe0ae0cef1faafc290ccc",
+  "users": 2,
+  "controllers": 3,
+  "realDshProcesses": 3,
+  "realProvider": false,
+  "providerRequests": 6,
+  "passed": [
+    "Two users own three actual isolated DSH processes with separate homes, workspaces and journals",
+    "Real fleet enumeration is tenant scoped",
+    "One account controls A1 and A2 concurrently through different controllers, with real Host-fenced leases",
+    "Identical session IDs route to distinct real DSH stores and never mix prompts or workspaces",
+    "Authenticated HTTP command/state access and WebSocket replay/events stay tenant scoped with actual DSH output",
+    "Explicit takeover fences the old actual Host controller without disturbing control of another instance"
+  ]
+}

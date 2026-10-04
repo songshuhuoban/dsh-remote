@@ -1,0 +1,90 @@
+name: Validate source
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  # No job may opt in to a paid or operator-configured model provider.
+  LIVE_PROVIDER_E2E: '0'
+jobs:
+  types-and-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run test:plugin
+      - run: bun run test:web
+      - run: bun run test:web:integration
+  flutter-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CI: 'true'
+      FLUTTER_SUPPRESS_ANALYTICS: 'true'
+      DSH_UPSTREAM: ${{ github.workspace }}/.tools/dsh-upstream
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - run: npm install --global pnpm@11.7.0
+      - run: bun install --frozen-lockfile
+      - run: bash packages/dsh-plugin/scripts/bootstrap-upstream.sh
+      - name: Install official Flutter SDK
+        run: |
+          git clone --branch 3.47.6 --depth 1 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - run: flutter --disable-analytics
+      - run: flutter pub get
+        working-directory: apps/mobile
+      - run: flutter analyze
+        working-directory: apps/mobile
+      - run: flutter test
+        working-directory: apps/mobile
+      - run: bash tool/run_real_host_tests.sh
+        working-directory: apps/mobile
+      - run: flutter build apk --debug
+        working-directory: apps/mobile
+  deterministic-dsh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      DSH_UPSTREAM: ${{ github.workspace }}/.tools/dsh-upstream
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - run: npm install --global pnpm@11.7.0
+      - run: bun install --frozen-lockfile
+      - run: bash packages/dsh-plugin/scripts/bootstrap-upstream.sh
+      - run: bun run build:plugin && bun run build:web
+      - run: bun run test:runtime
+      - run: bun run test:topology
+      - run: bun run test:web:runtime
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run --cwd apps/web test:browser
+      - run: bun run --cwd apps/web test:browser:runtime
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-evidence
+          path: apps/web/test-results
+          if-no-files-found: ignore
