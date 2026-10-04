@@ -81,6 +81,12 @@ jobs:
         working-directory: apps/mobile
       - run: flutter build apk --debug
         working-directory: apps/mobile
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: apps/mobile/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
   deterministic-dsh:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
