@@ -1,0 +1,90 @@
+bun test v1.4.2 (744846f84)
+
+tests/validation.test.ts:
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.list: accepted source-shaped arguments [0.37ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.list: unknown authority fields rejected [0.22ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.list: nonobject roots rejected [0.05ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.read: accepted source-shaped arguments [0.05ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.read: unknown authority fields rejected [0.02ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.read: nonobject roots rejected [0.01ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.page: accepted source-shaped arguments [0.09ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.page: unknown authority fields rejected [0.01ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.page: nonobject roots rejected [0.01ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.projections: accepted source-shaped arguments
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.projections: unknown authority fields rejected
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.projections: nonobject roots rejected [0.01ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > settings.describe: accepted source-shaped arguments [0.06ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > settings.describe: unknown authority fields rejected [0.07ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > settings.describe: nonobject roots rejected [0.07ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > attachment.read: accepted source-shaped arguments [0.02ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > attachment.read: unknown authority fields rejected [0.01ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > attachment.read: nonobject roots rejected [0.02ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > capabilities: accepted source-shaped arguments
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > capabilities: unknown authority fields rejected [0.04ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > capabilities: nonobject roots rejected [0.04ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.create: accepted source-shaped arguments [0.13ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.create: unknown authority fields rejected [0.02ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.create: nonobject roots rejected [0.02ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.prompt: accepted source-shaped arguments [0.18ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.prompt: unknown authority fields rejected [0.03ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.prompt: nonobject roots rejected [0.02ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.cancel: accepted source-shaped arguments [0.02ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.cancel: unknown authority fields rejected
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.cancel: nonobject roots rejected [0.01ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.resume: accepted source-shaped arguments
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.resume: unknown authority fields rejected
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.resume: nonobject roots rejected
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.queue.update: accepted source-shaped arguments [0.01ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.queue.update: unknown authority fields rejected
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > session.queue.update: nonobject roots rejected [0.01ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > model.select: accepted source-shaped arguments [0.01ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > model.select: unknown authority fields rejected
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > model.select: nonobject roots rejected [0.01ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > attachment.upload: accepted source-shaped arguments [0.13ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > attachment.upload: unknown authority fields rejected [0.01ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > attachment.upload: nonobject roots rejected [0.01ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > approval.respond: accepted source-shaped arguments [0.06ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > approval.respond: unknown authority fields rejected [0.02ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > approval.respond: nonobject roots rejected [0.01ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > settings.update: accepted source-shaped arguments [0.02ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > settings.update: unknown authority fields rejected
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > settings.update: nonobject roots rejected [0.03ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > no unknown actions or unsafe root object shapes [0.09ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > required scalar/session/create identities are enforced [0.32ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > no prototype properties, accessors, cyclic or excessive-depth trees [8.45ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > queue and steer modes preserve exact prompt shape [6.44ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > content types and fields are strict; whitespace-only input fails [0.33ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > content/text/attachment aggregate limits [0.45ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > canonical base64 including padding bits and empty files [26.38ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > image media/bytes/name shape is strict [0.58ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > display filenames cannot select paths or controls [0.20ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > source QueueAction variants; edits text-only and nonempty [0.16ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > ordinary and subagent addresses require exact fields [0.09ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > history bounds exactly match upstream positive windows and -1 empty cursor [0.29ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > approval response requires exact live identity and digest [0.19ms]
+(pass) Shared relay/Host command wire validation (unit tests, not DSH E2E) > one revision-checked setting, never arbitrary namespace update [0.13ms]
+
+tests/relay.test.ts:
+(pass) Relay protocol and isolation (fixture connector; NOT DSH end-to-end) > password validation, login failure and cookie attributes [231.19ms]
+(pass) Relay protocol and isolation (fixture connector; NOT DSH end-to-end) > rejects unauthenticated and malicious cross-origin requests [0.65ms]
+(pass) Relay protocol and isolation (fixture connector; NOT DSH end-to-end) > tenant cannot list or address another user instance [0.72ms]
+(pass) Relay protocol and isolation (fixture connector; NOT DSH end-to-end) > login sessions are bound to controller identity [0.28ms]
+(pass) Relay protocol and isolation (fixture connector; NOT DSH end-to-end) > one-time credential is not returned by later instance reads [0.24ms]
+(pass) Relay protocol and isolation (fixture connector; NOT DSH end-to-end) > passive read needs no writer lease; mutations do [11.93ms]
+(pass) Relay protocol and isolation (fixture connector; NOT DSH end-to-end) > exclusive lease acquisition, renewal and explicit takeover increments fence [45.23ms]
+(pass) Relay protocol and isolation (fixture connector; NOT DSH end-to-end) > repeated id dispatches once; changed payload conflicts [1.72ms]
+(pass) Relay protocol and isolation (fixture connector; NOT DSH end-to-end) > allowlist rejects arbitrary RPC and admin calls [0.32ms]
+(pass) Relay protocol and isolation (fixture connector; NOT DSH end-to-end) > event replay is tenant-scoped and source IDs deduplicate [90.87ms]
+(pass) Relay protocol and isolation (fixture connector; NOT DSH end-to-end) > disconnect marks dispatched commands indeterminate and offline fails [46.01ms]
+(pass) Relay protocol and isolation (fixture connector; NOT DSH end-to-end) > reconnection increments epoch and accepts durable result reconciliation [61.53ms]
+(pass) Relay protocol and isolation (fixture connector; NOT DSH end-to-end) > pending approvals survive replay reset via authoritative snapshot [56.33ms]
+(pass) Relay protocol and isolation (fixture connector; NOT DSH end-to-end) > strict argument schemas reject privileged keys and excessive depth [1.00ms]
+(pass) Relay protocol and isolation (fixture connector; NOT DSH end-to-end) > identical caller IDs are isolated across different accounts [32.81ms]
+(pass) Relay protocol and isolation (fixture connector; NOT DSH end-to-end) > logout revokes active writer lease and device sessions [11.91ms]
+(pass) Relay protocol and isolation (fixture connector; NOT DSH end-to-end) > logout revokes bearer and cookie session [0.31ms]
+(pass) registration requires explicit operator enablement and offline instance cannot take control [2.90ms]
+
+ 80 pass
+ 0 fail
+ 326 expect() calls
+Ran 80 tests across 2 files. [1175.00ms]

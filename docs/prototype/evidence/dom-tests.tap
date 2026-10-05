@@ -1,0 +1,82 @@
+TAP version 13
+# Subtest: entry point has synthetic disclaimer, upstream shell and disabled observer send
+ok 1 - entry point has synthetic disclaimer, upstream shell and disabled observer send
+  ---
+  duration_ms: 13.539552
+  type: 'test'
+  ...
+# Subtest: acquisition displays pendingACK and cancel, then unlocks composer
+ok 2 - acquisition displays pendingACK and cancel, then unlocks composer
+  ---
+  duration_ms: 24.928747
+  type: 'test'
+  ...
+# Subtest: dialog Escape closes and focus returns to opener
+ok 3 - dialog Escape closes and focus returns to opener
+  ---
+  duration_ms: 95.013189
+  type: 'test'
+  ...
+# Subtest: outside click dismisses a nonblocking dialog
+ok 4 - outside click dismisses a nonblocking dialog
+  ---
+  duration_ms: 23.492711
+  type: 'test'
+  ...
+# Subtest: cancel after submit exposes unknown result and keeps a query escape
+ok 5 - cancel after submit exposes unknown result and keeps a query escape
+  ---
+  duration_ms: 27.809223
+  type: 'test'
+  ...
+# Subtest: approval stale state has no actionable allow or deny
+ok 6 - approval stale state has no actionable allow or deny
+  ---
+  duration_ms: 17.355687
+  type: 'test'
+  ...
+# Subtest: registration steps have return controls and no real token
+ok 7 - registration steps have return controls and no real token
+  ---
+  duration_ms: 25.320815
+  type: 'test'
+  ...
+# Subtest: GitHub selection requires authorization and explicit path-binding step
+ok 8 - GitHub selection requires authorization and explicit path-binding step
+  ---
+  duration_ms: 62.121357
+  type: 'test'
+  ...
+# Subtest: unconfigured OAuth explains operator step and gives return
+ok 9 - unconfigured OAuth explains operator step and gives return
+  ---
+  duration_ms: 15.206239
+  type: 'test'
+  ...
+# Subtest: current device revocation requires explicit confirmation and returns login
+ok 10 - current device revocation requires explicit confirmation and returns login
+  ---
+  duration_ms: 15.781988
+  type: 'test'
+  ...
+# Subtest: editable queued text survives rerender while awaiting confirmation
+ok 11 - editable queued text survives rerender while awaiting confirmation
+  ---
+  duration_ms: 42.948593
+  type: 'test'
+  ...
+# Subtest: closing unrelated settings never cancels an in-flight command
+ok 12 - closing unrelated settings never cancels an in-flight command
+  ---
+  duration_ms: 23.007926
+  type: 'test'
+  ...
+1..12
+# tests 12
+# suites 0
+# pass 12
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 981.342079

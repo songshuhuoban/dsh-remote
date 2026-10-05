@@ -1,0 +1,49 @@
+{
+  "synthetic": true,
+  "realBrowser": false,
+  "passed": true,
+  "results": [
+    {
+      "path": "/",
+      "status": 200,
+      "type": "text/html; charset=utf-8",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'"
+    },
+    {
+      "path": "/app.mjs",
+      "status": 200,
+      "type": "text/javascript; charset=utf-8",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'"
+    },
+    {
+      "path": "/model.mjs",
+      "status": 200,
+      "type": "text/javascript; charset=utf-8",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'"
+    },
+    {
+      "path": "/vendor/design-platform.css",
+      "status": 200,
+      "type": "text/css; charset=utf-8",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'"
+    },
+    {
+      "path": "/vendor/montserrat-regular.woff2",
+      "status": 200,
+      "type": "font/woff2",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'"
+    },
+    {
+      "path": "/missing",
+      "status": 404,
+      "type": null,
+      "csp": null
+    },
+    {
+      "path": "/%2e%2e/%2e%2e/package.json",
+      "status": 404,
+      "type": null,
+      "csp": null
+    }
+  ]
+}

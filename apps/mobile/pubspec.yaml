@@ -1,0 +1,17 @@
+name: dsh_remote_mobile
+description: A native DSH remote controller with authenticated streaming and fenced writer leases.
+publish_to: none
+version: 0.1.0+1
+environment:
+  sdk: '>=3.10.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  file_selector: ^1.0.3
+  flutter_secure_storage: ^11.2.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+flutter:
+  uses-material-design: true

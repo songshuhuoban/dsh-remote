@@ -1,0 +1,6 @@
+{
+  "scope": "real Bun relay with synthetic connector frames; tests pending-state projection, not real DSH approval",
+  "pendingAfterRequest": 1,
+  "pendingAfterSettlement": 0,
+  "pendingAfterDuplicateOldRequest": 0
+}

@@ -1,0 +1,29 @@
+{
+  "kind": "real-dsh-pipeline-with-local-model",
+  "upstreamCommit": "5badb15009ae1756c3afe0ae0cef1faafc290ccc",
+  "passed": [
+    "Real Node DSH source profile and Bun connector connect",
+    "Writer lease acknowledged by Host fence",
+    "Create and list two independent real DSH sessions",
+    "Map and inspect two existing local Git repositories through the real controlled Host without cloning",
+    "Prompt, true next-step steering, durable assistant settlement",
+    "Selected repository context is reverified, persisted in the real DSH user message and delivered to the local model without config secrets or repository file contents",
+    "Repeated requestId remains one durable user message",
+    "Upload and admit actual DSH staged attachment",
+    "Read actual model catalog and session projections",
+    "Cancel live DSH turn",
+    "Edit, steer and remove actual pending DSH inbox entries",
+    "Admit image into real DSH inbox and retrieve session-authorized stored pixels",
+    "Real DSH approval waterfall rejects without side effect and allows exactly once with durable audit",
+    "Select actual DSH model and verify durable next-request configuration",
+    "Revise actual session permission preset with optimistic revision and verify projection",
+    "Restart DSH, recover persisted history without activation, then explicitly resume"
+  ],
+  "providerRequests": 7,
+  "realProvider": false,
+  "sourceOnlyOmissions": [
+    "typert-loader generated artifacts",
+    "bundled DSH browser assets"
+  ],
+  "temp": "/tmp/dsh-remote-real-Va1T2q"
+}

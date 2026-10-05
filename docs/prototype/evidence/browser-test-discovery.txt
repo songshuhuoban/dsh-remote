@@ -1,0 +1,26 @@
+Listing tests:
+  [desktop-light] › walkthrough.spec.mjs:12:1 › DSH shell, responsive settings, keyboard close, instance online states
+  [desktop-light] › walkthrough.spec.mjs:13:1 › writer ACK, message, steer, queue edit/delete, approval and stale history
+  [desktop-light] › walkthrough.spec.mjs:14:1 › timeout exits pendingACK, canceled mutation stays indeterminate, replay does not resend
+  [desktop-light] › walkthrough.spec.mjs:15:1 › attachment failure, remove, retry and cold session resume
+  [desktop-light] › walkthrough.spec.mjs:16:1 › GitHub multi-repo authorization, explicit host paths, verification, reference preview
+  [desktop-light] › walkthrough.spec.mjs:17:1 › pairing can be interrupted, navigation returns, current-device revocation and sign-in
+  [mobile-light] › walkthrough.spec.mjs:12:1 › DSH shell, responsive settings, keyboard close, instance online states
+  [mobile-light] › walkthrough.spec.mjs:13:1 › writer ACK, message, steer, queue edit/delete, approval and stale history
+  [mobile-light] › walkthrough.spec.mjs:14:1 › timeout exits pendingACK, canceled mutation stays indeterminate, replay does not resend
+  [mobile-light] › walkthrough.spec.mjs:15:1 › attachment failure, remove, retry and cold session resume
+  [mobile-light] › walkthrough.spec.mjs:16:1 › GitHub multi-repo authorization, explicit host paths, verification, reference preview
+  [mobile-light] › walkthrough.spec.mjs:17:1 › pairing can be interrupted, navigation returns, current-device revocation and sign-in
+  [desktop-dark] › walkthrough.spec.mjs:12:1 › DSH shell, responsive settings, keyboard close, instance online states
+  [desktop-dark] › walkthrough.spec.mjs:13:1 › writer ACK, message, steer, queue edit/delete, approval and stale history
+  [desktop-dark] › walkthrough.spec.mjs:14:1 › timeout exits pendingACK, canceled mutation stays indeterminate, replay does not resend
+  [desktop-dark] › walkthrough.spec.mjs:15:1 › attachment failure, remove, retry and cold session resume
+  [desktop-dark] › walkthrough.spec.mjs:16:1 › GitHub multi-repo authorization, explicit host paths, verification, reference preview
+  [desktop-dark] › walkthrough.spec.mjs:17:1 › pairing can be interrupted, navigation returns, current-device revocation and sign-in
+  [mobile-dark] › walkthrough.spec.mjs:12:1 › DSH shell, responsive settings, keyboard close, instance online states
+  [mobile-dark] › walkthrough.spec.mjs:13:1 › writer ACK, message, steer, queue edit/delete, approval and stale history
+  [mobile-dark] › walkthrough.spec.mjs:14:1 › timeout exits pendingACK, canceled mutation stays indeterminate, replay does not resend
+  [mobile-dark] › walkthrough.spec.mjs:15:1 › attachment failure, remove, retry and cold session resume
+  [mobile-dark] › walkthrough.spec.mjs:16:1 › GitHub multi-repo authorization, explicit host paths, verification, reference preview
+  [mobile-dark] › walkthrough.spec.mjs:17:1 › pairing can be interrupted, navigation returns, current-device revocation and sign-in
+Total: 24 tests in 1 file

@@ -1,0 +1,18 @@
+{
+  "README.md": "45d5fe0d8c204c4bfbee6113ebe23caf29fc1f19ccaafbb6e25ffbdd506c006c",
+  "VALIDATION.md": "931bdb8e864a6a46c7e0a5125b62e698c1e1c72c80a50ee3b30cb6e87f4e4d37",
+  "lib/main.dart": "34a59c6e89a9db7a0ece18aac4172cab65dc137259c5f92af3e1f5ea1140aa26",
+  "lib/src/api.dart": "6b87ef46cb467ee5dc2c81310ccf824be845172c496096cc3919274515d0fa58",
+  "lib/src/credentials.dart": "07cb9f021bfb8dcaf7ae9fbac93cea1e95cbc70340b325f9777294eba6316c28",
+  "lib/src/models.dart": "89683a35dc82d5e2008c4a294af9015406169958efd89ee43fe04814f7f149e7",
+  "lib/src/repositories_page.dart": "cc607c6bce3cbe5e816912fd7d0af87061b65c7065fe73d1ecb415adedb66588",
+  "lib/src/store.dart": "b3d4c28b3f232c02fc5b20efd3de21f4fe0c4e5282df56aa0679af2a3b5776e0",
+  "lib/src/theme.dart": "4ba7785f4f96516188a54cc4ce5a95c7df59e3eff5f2c50cf4cdcbbb5c1e8680",
+  "pubspec.lock": "3ffc7607aebb525470ee8c96c8bafab3d0e14ab5cfd7b979c2935e5787d9b4fd",
+  "pubspec.yaml": "87a2ad1b2d232be681a357c5180e32c1b22277b5e59eb5f218e6c1b8e4e90a00",
+  "test/adoption_widget_test.dart": "ebad3e9510b5e15a6c57dfb5deb24d6c019d12193f3024f1b1a0473c341c00a9",
+  "test/models_test.dart": "9e535062d757b7b6b1db26aba02ec7bddaf9b535ae60b2640646d9c08b487f59",
+  "test/real_host_test.dart": "6b172e88d8c98b65e21370f8582f983c1ab68da8ebc8407c846e707ede91555a",
+  "test/repositories_test.dart": "2bbaaa3ee752cd9fa0b702b3e56504238afe029e55ad03ac982efad8be206e4d",
+  "test/widget_test.dart": "2bbd06efcd8aa302e322645a5935e3a3b79e3354fad106c2fde7a909699d8ce5"
+}

@@ -1,0 +1,3 @@
+00:00 +0: loading /workspace/scratch/a97108fa7443/dsh-remote/apps/mobile/test/real_host_test.dart
+00:00 +0: actual widgets drive real DSH session, approval, settings and restoration
+00:47 +1: All tests passed!

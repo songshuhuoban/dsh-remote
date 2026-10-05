@@ -1,0 +1,40 @@
+{
+  "name": "dsh-remote",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/server",
+    "apps/web",
+    "packages/protocol",
+    "packages/connector",
+    "packages/dsh-plugin"
+  ],
+  "scripts": {
+    "dev": "bun run apps/server/src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test tests",
+    "build:web": "bun run --cwd apps/web build",
+    "test:ui": "bun run --cwd apps/web test:browser",
+    "build:plugin": "bun run --cwd packages/dsh-plugin build",
+    "test:plugin": "bun test packages/dsh-plugin/tests packages/connector/tests",
+    "test:runtime": "LIVE_PROVIDER_E2E=0 bun run packages/dsh-plugin/tests/runtime-smoke.ts",
+    "test:web": "bun run --cwd apps/web test",
+    "check": "bun run typecheck && bun test tests && bun run build:plugin && bun run build:web",
+    "test:web:integration": "bun run --cwd apps/web test:integration",
+    "test:web:runtime": "bun run --cwd apps/web test:runtime",
+    "format": "prettier --write apps/server/src packages/protocol/src tests",
+    "test:topology": "bun run packages/dsh-plugin/tests/multi-instance.e2e.ts",
+    "test:live-provider": "LIVE_PROVIDER_E2E=1 bun run packages/dsh-plugin/tests/runtime-smoke.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/bun": "latest",
+    "prettier": "3.9.9",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "bun": ">=1.4.0",
+    "node": ">=24"
+  },
+  "packageManager": "bun@1.4.2"
+}

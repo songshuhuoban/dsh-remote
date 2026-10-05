@@ -1,0 +1,244 @@
+TAP version 13
+# Subtest: initial view is observer and cannot mutate
+ok 1 - initial view is observer and cannot mutate
+  ---
+  duration_ms: 3.241457
+  type: 'test'
+  ...
+# Subtest: acquisition receipt is not writer until exact host ACK
+ok 2 - acquisition receipt is not writer until exact host ACK
+  ---
+  duration_ms: 0.846818
+  type: 'test'
+  ...
+# Subtest: repeated acquire click has one request ID
+ok 3 - repeated acquire click has one request ID
+  ---
+  duration_ms: 1.505869
+  type: 'test'
+  ...
+# Subtest: busy owner cannot be acquired implicitly
+ok 4 - busy owner cannot be acquired implicitly
+  ---
+  duration_ms: 0.731558
+  type: 'test'
+  ...
+# Subtest: explicit takeover can be denied without taking ownership
+ok 5 - explicit takeover can be denied without taking ownership
+  ---
+  duration_ms: 0.292431
+  type: 'test'
+  ...
+# Subtest: pendingACK timeout returns observer and rejects late ACK
+ok 6 - pendingACK timeout returns observer and rejects late ACK
+  ---
+  duration_ms: 0.29866
+  type: 'test'
+  ...
+# Subtest: cancel pendingACK does not later acquire
+ok 7 - cancel pendingACK does not later acquire
+  ---
+  duration_ms: 0.336015
+  type: 'test'
+  ...
+# Subtest: navigation keeps late ACK in original instance only
+ok 8 - navigation keeps late ACK in original instance only
+  ---
+  duration_ms: 0.233875
+  type: 'test'
+  ...
+# Subtest: cold view never resumes and writer must explicitly resume
+ok 9 - cold view never resumes and writer must explicitly resume
+  ---
+  duration_ms: 0.5084
+  type: 'test'
+  ...
+# Subtest: create succeeds and selects new session on that instance
+ok 10 - create succeeds and selects new session on that instance
+  ---
+  duration_ms: 0.450053
+  type: 'test'
+  ...
+# Subtest: config saves only after ACK
+ok 11 - config saves only after ACK
+  ---
+  duration_ms: 0.432918
+  type: 'test'
+  ...
+# Subtest: stream steer queue edit delete all remain reversible UI paths
+ok 12 - stream steer queue edit delete all remain reversible UI paths
+  ---
+  duration_ms: 0.915459
+  type: 'test'
+  ...
+# Subtest: uncertain command retains ID and blocks new writes until query
+ok 13 - uncertain command retains ID and blocks new writes until query
+  ---
+  duration_ms: 0.350286
+  type: 'test'
+  ...
+# Subtest: cancelling a sent mutation is indeterminate, not cancelled execution
+ok 14 - cancelling a sent mutation is indeterminate, not cancelled execution
+  ---
+  duration_ms: 0.238932
+  type: 'test'
+  ...
+# Subtest: disconnect retains draft, invalidates lease and makes outstanding command unknown
+ok 15 - disconnect retains draft, invalidates lease and makes outstanding command unknown
+  ---
+  duration_ms: 0.278381
+  type: 'test'
+  ...
+# Subtest: replay completion does not auto-acquire writer
+ok 16 - replay completion does not auto-acquire writer
+  ---
+  duration_ms: 0.231611
+  type: 'test'
+  ...
+# Subtest: replay timeout leaves retry path and no pending spinner
+ok 17 - replay timeout leaves retry path and no pending spinner
+  ---
+  duration_ms: 0.259212
+  type: 'test'
+  ...
+# Subtest: fresh registration remains offline until connector completes
+ok 18 - fresh registration remains offline until connector completes
+  ---
+  duration_ms: 0.201967
+  type: 'test'
+  ...
+# Subtest: stale status is not online and cannot write
+ok 19 - stale status is not online and cannot write
+  ---
+  duration_ms: 0.229258
+  type: 'test'
+  ...
+# Subtest: status query preserves offline and exposes observed time
+ok 20 - status query preserves offline and exposes observed time
+  ---
+  duration_ms: 0.150231
+  type: 'test'
+  ...
+# Subtest: approval allow has one terminal outcome
+ok 21 - approval allow has one terminal outcome
+  ---
+  duration_ms: 0.278591
+  type: 'test'
+  ...
+# Subtest: approval deny has one terminal outcome
+ok 22 - approval deny has one terminal outcome
+  ---
+  duration_ms: 0.309426
+  type: 'test'
+  ...
+# Subtest: stale approval cannot be submitted after reconnect
+ok 23 - stale approval cannot be submitted after reconnect
+  ---
+  duration_ms: 1.150776
+  type: 'test'
+  ...
+# Subtest: approval expiring while submitted never becomes live again
+ok 24 - approval expiring while submitted never becomes live again
+  ---
+  duration_ms: 0.263238
+  type: 'test'
+  ...
+# Subtest: attachment fail retry ready and remove
+ok 25 - attachment fail retry ready and remove
+  ---
+  duration_ms: 0.302927
+  type: 'test'
+  ...
+# Subtest: attachment timeout leaves failed state and cancel escape
+ok 26 - attachment timeout leaves failed state and cancel escape
+  ---
+  duration_ms: 0.268616
+  type: 'test'
+  ...
+# Subtest: logout prevents old command ACK from restoring state
+ok 27 - logout prevents old command ACK from restoring state
+  ---
+  duration_ms: 0.306863
+  type: 'test'
+  ...
+# Subtest: current-device revocation logs out; another-device revocation does not
+ok 28 - current-device revocation logs out; another-device revocation does not
+  ---
+  duration_ms: 0.252693
+  type: 'test'
+  ...
+# Subtest: login cancel and timeout are bounded and late result ignored
+ok 29 - login cancel and timeout are bounded and late result ignored
+  ---
+  duration_ms: 0.354663
+  type: 'test'
+  ...
+# Subtest: GitHub consent alone gives neither local files nor reference selection
+ok 30 - GitHub consent alone gives neither local files nor reference selection
+  ---
+  duration_ms: 0.233825
+  type: 'test'
+  ...
+# Subtest: multi-repository references belong to one explicit instance
+ok 31 - multi-repository references belong to one explicit instance
+  ---
+  duration_ms: 0.426017
+  type: 'test'
+  ...
+# Subtest: declared local reference cannot be attached before verification
+ok 32 - declared local reference cannot be attached before verification
+  ---
+  duration_ms: 0.485525
+  type: 'test'
+  ...
+# Subtest: verification error is retryable, preserves declared path, never ready by authorization
+ok 33 - verification error is retryable, preserves declared path, never ready by authorization
+  ---
+  duration_ms: 0.435221
+  type: 'test'
+  ...
+# Subtest: ready reference is removable and stale reference blocks send
+ok 34 - ready reference is removable and stale reference blocks send
+  ---
+  duration_ms: 0.618842
+  type: 'test'
+  ...
+# Subtest: disconnect ignores a late local verification success
+ok 35 - disconnect ignores a late local verification success
+  ---
+  duration_ms: 0.35281
+  type: 'test'
+  ...
+# Subtest: GitHub cancel timeout revoke and late OAuth callback are safe
+ok 36 - GitHub cancel timeout revoke and late OAuth callback are safe
+  ---
+  duration_ms: 0.505705
+  type: 'test'
+  ...
+# Subtest: all finite waits end by timeout, preserving a usable return state
+ok 37 - all finite waits end by timeout, preserving a usable return state
+  ---
+  duration_ms: 1.625886
+  type: 'test'
+  ...
+# Subtest: querying uncertain create reflects the one original session, never creates a second command
+ok 38 - querying uncertain create reflects the one original session, never creates a second command
+  ---
+  duration_ms: 0.273453
+  type: 'test'
+  ...
+# Subtest: querying uncertain config applies confirmed original result
+ok 39 - querying uncertain config applies confirmed original result
+  ---
+  duration_ms: 0.265721
+  type: 'test'
+  ...
+1..39
+# tests 39
+# suites 0
+# pass 39
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 116.478433
