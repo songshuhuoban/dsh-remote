@@ -1,13 +1,8 @@
-import { Database } from "bun:sqlite";
-import { mkdirSync, chmodSync } from "node:fs";
-import { dirname } from "node:path";
-/** Durable single-node relay state. WAL leases/commands are transactionally fenced. */
-export function openStore(path: string): Database {
-  if (path !== ":memory:")
-    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const db = new Database(path, { create: true });
-  if (path !== ":memory:") chmodSync(path, 0o600);
-  db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
+import type { SqlDatabase } from "./db.ts";
+
+/** Relay schema shared by every runtime. Leases/commands are transactionally fenced. */
+export function initializeSchema(db: SqlDatabase): void {
+  db.exec(`
     CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,email TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,created_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS controllers(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),name TEXT NOT NULL,created_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS auth_sessions(token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),controller_id TEXT NOT NULL REFERENCES controllers(id),expires_at INTEGER NOT NULL);
@@ -20,23 +15,20 @@ export function openStore(path: string): Database {
     CREATE TABLE IF NOT EXISTS settled_approvals(instance_id TEXT NOT NULL REFERENCES instances(id),approval_id TEXT NOT NULL,PRIMARY KEY(instance_id,approval_id));
     CREATE TABLE IF NOT EXISTS pending_approvals(instance_id TEXT NOT NULL REFERENCES instances(id),approval_id TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(instance_id,approval_id));
     CREATE INDEX IF NOT EXISTS event_user_seq ON events(user_id,seq);
+    DROP INDEX IF EXISTS event_created;
   `);
-  if (
-    !(db.query("PRAGMA table_info(commands)").all() as { name: string }[]).some(
-      (column) => column.name === "request_id",
-    )
-  )
-    db.exec("ALTER TABLE commands ADD COLUMN request_id TEXT");
-  if (
-    !(db.query("PRAGMA table_info(commands)").all() as { name: string }[]).some(
-      (column) => column.name === "repository_id",
-    )
-  )
-    db.exec("ALTER TABLE commands ADD COLUMN repository_id TEXT");
-  const instanceColumns = new Set(
-    (db.query("PRAGMA table_info(instances)").all() as { name: string }[]).map((c) => c.name),
-  );
-  for (const column of ["last_seen_at", "connected_at", "disconnected_at"])
-    if (!instanceColumns.has(column)) db.exec(`ALTER TABLE instances ADD COLUMN ${column} INTEGER`);
-  return db;
+  // Additive migrations. PRAGMA introspection is not available on every runtime.
+  for (const [table, column] of [
+    ["commands", "request_id TEXT"],
+    ["commands", "repository_id TEXT"],
+    ["instances", "last_seen_at INTEGER"],
+    ["instances", "connected_at INTEGER"],
+    ["instances", "disconnected_at INTEGER"],
+  ])
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column}`);
+    } catch (error) {
+      if (!/duplicate column/i.test(error instanceof Error ? error.message : String(error)))
+        throw error;
+    }
 }

@@ -92,6 +92,11 @@ export function useEvents(enabled: boolean) {
           ]);
         if (event.kind === 'approval.settled')
           setApprovals((old) => old.filter((a) => a.approvalId !== payload.approvalId));
+        // A new Host boot invalidates earlier approval handles; the relay drops them without a settle event.
+        if (event.kind === 'instance.online' && typeof envelope.bootId === 'string')
+          setApprovals((old) =>
+            old.filter((a) => a.instanceId !== event.instanceId || a.bootId === envelope.bootId),
+          );
         if (event.kind === 'instance.offline') setStreams({});
         if (event.kind === 'assistant.stream' && typeof envelope.sessionId === 'string') {
           const key = `${event.instanceId}:${envelope.sessionId}`,

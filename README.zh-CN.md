@@ -39,6 +39,10 @@ REGISTRATION=enabled bun run dev
 
 模型供应商的密钥留在 DSH 主机本地，不交给中继服务。`allowedWorkspaceRoots` 必须列出允许远程查看与操作的已有工作目录，远端不能扩大范围。
 
+## Cloudflare 部署
+
+同一套中继核心也可运行在 Cloudflare Workers 上：Worker 托管 Web 控制台，单个 SQLite Durable Object 保存中继状态并持有全部 WebSocket；注册可要求邀请码。步骤与免费额度限制见 [Cloudflare 部署说明](docs/deploy-cloudflare.md)。
+
 ## 已验证与未完成的部分
 
 - 后端/协议/插件及新 GitHub 路径：133项测试通过，1项 Windows 专属测试在 Linux 上跳过；不是 Windows 通过

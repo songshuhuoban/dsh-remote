@@ -172,8 +172,8 @@ class _SignInPageState extends State<SignInPage> {
                           ),
                         ),
                       ),
-                      validator: (v) => (v?.length ?? 0) < 12 && register
-                          ? 'Use at least 12 characters'
+                      validator: (v) => (v?.length ?? 0) < 8 && register
+                          ? 'Use at least 8 characters'
                           : requiredValue(v),
                       onFieldSubmitted: (_) => submit(),
                     ),

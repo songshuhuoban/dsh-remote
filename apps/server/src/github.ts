@@ -1,4 +1,4 @@
-import type { Database } from 'bun:sqlite';
+import type { SqlDatabase as Database } from './db.ts';
 import {
   createCipheriv,
   createDecipheriv,
@@ -137,11 +137,12 @@ export function createGitHubService(
   let configError: string | undefined;
   if (!missing.length) {
     try {
-      key = Buffer.from(options.tokenEncryptionKey!, 'base64');
+      const decoded: Buffer = Buffer.from(options.tokenEncryptionKey!, 'base64');
+      key = decoded;
       callback = new URL(options.callbackUrl!);
       if (
-        key.length !== 32 ||
-        key.toString('base64') !== options.tokenEncryptionKey ||
+        decoded.length !== 32 ||
+        decoded.toString('base64') !== options.tokenEncryptionKey ||
         !/^[A-Za-z0-9_-]+$/.test(options.clientId!) ||
         !/^[a-z0-9-]+$/.test(options.appSlug!) ||
         callback.pathname !== '/github/callback' ||

@@ -1,4 +1,4 @@
-import type { Database } from 'bun:sqlite';
+import type { SqlDatabase as Database } from './db.ts';
 
 /** GitHub grants are separate from DSH sessions and repository readiness. */
 export function initializeGitHubStore(db: Database): void {

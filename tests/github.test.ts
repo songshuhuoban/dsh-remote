@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { openStore } from '../apps/server/src/store.ts';
+import { openStore } from '../apps/server/src/server.ts';
 import {
   createGitHubService,
   canonicalGitHubUrl,

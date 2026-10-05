@@ -352,6 +352,9 @@ pre {
   padding: 0 8px;
 }
 .instance-picker select {
+  appearance: none;
+  flex: 1;
+  min-width: 0;
   border: 0;
   padding: 6px 0;
   background: transparent;

@@ -37,7 +37,7 @@ bun run build:web
 REGISTRATION=enabled bun run dev
 ```
 
-Open `http://127.0.0.1:3000`. Use a synthetic or locally managed account with a password of at least 12 characters. Create an instance and save its one-time connector token in the private credential file described below; configure only the file path in the DSH plugin. After provisioning the intended accounts, restart without `REGISTRATION=enabled`.
+Open `http://127.0.0.1:3000`. Use a synthetic or locally managed account with a password of at least 8 characters. Create an instance and save its one-time connector token in the private credential file described below; configure only the file path in the DSH plugin. After provisioning the intended accounts, restart without `REGISTRATION=enabled`.
 
 For frontend development, `bun run --cwd apps/web dev` proxies `/api` and `/ws` to the relay on port 3000.
 
@@ -79,6 +79,10 @@ A real model provider must already be configured on the DSH host for live-genera
 Both clients use the same allowlisted command API. Web uses an HttpOnly, SameSite cookie; native clients use a bearer session bound to one controller. Owner IDs and controller impersonation are never accepted from command payloads.
 
 See [API details](docs/api.md), [architecture](docs/design/architecture.md), [acceptance gates](docs/design/e2e-acceptance.md), and [verification](docs/verification.md).
+
+## Cloudflare deployment
+
+The same relay core also runs on Cloudflare Workers: a Worker serves the web console and a single SQLite-backed Durable Object holds relay state and every WebSocket. Registration can require an invite code. See [Cloudflare deployment](docs/deploy-cloudflare.md), including free-plan limits.
 
 ## Data and operations
 

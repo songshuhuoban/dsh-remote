@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { openStore } from '../apps/server/src/store.ts';
+import { openStore } from '../apps/server/src/server.ts';
 import { createGitHubService, type GitHubAuth } from '../apps/server/src/github.ts';
 import { githubCallback } from '../apps/server/src/github-routes.ts';
 
