@@ -80,6 +80,10 @@ Both clients use the same allowlisted command API. Web uses an HttpOnly, SameSit
 
 See [API details](docs/api.md), [architecture](docs/design/architecture.md), [acceptance gates](docs/design/e2e-acceptance.md), and [verification](docs/verification.md).
 
+## Cloudflare deployment
+
+The same relay core also runs on Cloudflare Workers: a Worker serves the web console and a single SQLite-backed Durable Object holds relay state and every WebSocket. Registration can require an invite code. See [Cloudflare deployment](docs/deploy-cloudflare.md), including free-plan limits.
+
 ## Data and operations
 
 The relay is deliberately a single-process SQLite service. Horizontal scaling is unsupported. The relay persists account password hashes, token hashes, command metadata/results, event history and pending approvals. Local conversations and attachments crossing the remote channel are sensitive user data: protect both relay storage and connector journals, configure disk limits/retention/backups before deployment, and never publish runtime databases.

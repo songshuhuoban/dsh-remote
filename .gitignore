@@ -18,3 +18,4 @@ ios/Flutter/flutter_export_environment.sh
 .idea/
 *.iml
 .DS_Store
+.wrangler/

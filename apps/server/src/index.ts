@@ -6,7 +6,11 @@ const relay = createRelay({
   databasePath: process.env.DATABASE_PATH ?? ".data/relay.sqlite",
   allowedOrigins: process.env.ALLOWED_ORIGINS?.split(","),
   staticDir: process.env.WEB_DIST ?? "apps/web/dist",
-  registration: process.env.REGISTRATION === "enabled",
+  // "invite" fails closed: without the code, registration stays off.
+  registration:
+    process.env.REGISTRATION === "enabled" ||
+    (process.env.REGISTRATION === "invite" && !!process.env.REGISTRATION_INVITE_CODE),
+  inviteCode: process.env.REGISTRATION_INVITE_CODE || undefined,
   secureCookies: process.env.SECURE_COOKIES === "true",
 });
 console.log(`DSH Remote relay listening on ${relay.server.url}`);
