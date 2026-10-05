@@ -484,11 +484,11 @@ export function createRelayCore(
             email = string(input.email, 'email', 254).trim().toLowerCase(),
             password = string(input.password, 'password', 1024),
             deviceName = string(input.deviceName ?? 'Controller', 'deviceName', 80);
-          if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || password.length < 12)
+          if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || password.length < 8)
             throw new HttpError(
               400,
               'INVALID_INPUT',
-              'Use a valid email and password of at least 12 characters',
+              'Use a valid email and password of at least 8 characters',
             );
           let user = get('SELECT * FROM users WHERE email=?', email);
           if (path.endsWith('register')) {

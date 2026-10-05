@@ -37,7 +37,7 @@ bun run build:web
 REGISTRATION=enabled bun run dev
 ```
 
-Open `http://127.0.0.1:3000`. Use a synthetic or locally managed account with a password of at least 12 characters. Create an instance and save its one-time connector token in the private credential file described below; configure only the file path in the DSH plugin. After provisioning the intended accounts, restart without `REGISTRATION=enabled`.
+Open `http://127.0.0.1:3000`. Use a synthetic or locally managed account with a password of at least 8 characters. Create an instance and save its one-time connector token in the private credential file described below; configure only the file path in the DSH plugin. After provisioning the intended accounts, restart without `REGISTRATION=enabled`.
 
 For frontend development, `bun run --cwd apps/web dev` proxies `/api` and `/ws` to the relay on port 3000.
 

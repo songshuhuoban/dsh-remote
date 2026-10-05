@@ -51,6 +51,15 @@ test('invite mode admits only the configured code and does not reveal existing a
   });
 });
 
+test('passwords need at least eight characters', async () => {
+  await withRelay({ registration: true }, async (base) => {
+    const short = await register(base, account('short@example.invalid', { password: 'seven77' }));
+    expect(short.status).toBe(400);
+    const ok = await register(base, account('eight@example.invalid', { password: 'eight888' }));
+    expect(ok.status).toBe(201);
+  });
+});
+
 test('closed mode rejects registration even with an invite code', async () => {
   await withRelay({ inviteCode: 'invite-fixture' }, async (base) => {
     const response = await register(

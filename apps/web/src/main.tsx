@@ -258,12 +258,12 @@ function Auth({ error }: { error: unknown }) {
             密码
             <input
               type="password"
-              minLength={12}
+              minLength={8}
               autoComplete={register ? 'new-password' : 'current-password'}
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={register ? '至少 12 个字符' : '输入你的密码'}
+              placeholder={register ? '至少 8 个字符' : '输入你的密码'}
             />
           </label>
           <label>
