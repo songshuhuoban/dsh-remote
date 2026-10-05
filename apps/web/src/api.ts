@@ -71,14 +71,27 @@ export const asList = (value: unknown, key: string): unknown[] =>
     : Array.isArray(asRecord(value)[key])
       ? (asRecord(value)[key] as unknown[])
       : [];
+/** Chinese copy for relay error codes users can reach from the console. */
+const ERROR_TEXT: Record<string, string> = {
+  INVALID_CREDENTIALS: '邮箱或密码不正确',
+  ACCOUNT_EXISTS: '该邮箱已注册，请直接登录',
+  REGISTRATION_DISABLED: '此部署未开放注册，请联系管理员',
+  INVITE_REQUIRED: '邀请码无效，请向管理员确认',
+  RATE_LIMITED: '尝试次数过多，请稍后再试',
+  UNAUTHENTICATED: '登录已失效，请重新登录',
+  INSTANCE_OFFLINE: 'DSH 实例当前离线',
+  COMMAND_QUOTA: '待确认的命令过多，请稍后再试',
+  TOO_LARGE: '请求内容过大',
+};
 export const errorText = (error: unknown): string =>
   error instanceof Error
     ? error.message
     : typeof error === 'string'
       ? error
-      : typeof asRecord(error).message === 'string'
-        ? String(asRecord(error).message)
-        : (JSON.stringify(error) ?? '未知错误');
+      : (ERROR_TEXT[String(asRecord(error).code)] ??
+        (typeof asRecord(error).message === 'string'
+          ? String(asRecord(error).message)
+          : (JSON.stringify(error) ?? '未知错误')));
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     ...options,

@@ -87,6 +87,7 @@ import { getReferences, contextPreview, repositoryIdsForPrompt } from './reposit
 import { readDraft, saveDraft } from './drafts';
 import { OperationsProvider, RecoveryPanel, useOperations } from './operations';
 import './styles.css';
+const THEME_KEY = 'dsh.appearance';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -147,7 +148,15 @@ function Auth({ error }: { error: unknown }) {
     [email, setEmail] = useState(''),
     [password, setPassword] = useState(''),
     [deviceName, setDeviceName] = useState('Web 控制台'),
+    [inviteCode, setInviteCode] = useState(''),
     [authNotice, setAuthNotice] = useState('');
+  // Older relays omit the mode; they behave as open registration.
+  const health = useQuery({
+    queryKey: ['health'],
+    queryFn: () => api<{ registration?: 'open' | 'invite' | 'closed' }>('/health'),
+    staleTime: 60_000,
+  });
+  const registration = health.data?.registration ?? 'open';
   const authAttempt = useRef(0),
     authAbort = useRef<AbortController | null>(null);
   const mutation = useMutation({
@@ -157,7 +166,12 @@ function Auth({ error }: { error: unknown }) {
       setAuthNotice('');
       const data = await api<Identity>(`/api/auth/${register ? 'register' : 'login'}`, {
         method: 'POST',
-        body: JSON.stringify({ email, password, deviceName }),
+        body: JSON.stringify({
+          email,
+          password,
+          deviceName,
+          ...(register && registration === 'invite' ? { inviteCode } : {}),
+        }),
         signal: authAbort.current.signal,
       });
       return { data, generation };
@@ -262,6 +276,19 @@ function Auth({ error }: { error: unknown }) {
               autoComplete="off"
             />
           </label>
+          {register && registration === 'invite' && (
+            <label>
+              邀请码
+              <input
+                required
+                maxLength={200}
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                autoComplete="off"
+                placeholder="向管理员索取"
+              />
+            </label>
+          )}
           <Err error={mutation.error || error} />
           <button className="primary wide" disabled={mutation.isPending}>
             {mutation.isPending ? <Spinner /> : null}
@@ -293,20 +320,24 @@ function Auth({ error }: { error: unknown }) {
               </button>
             </div>
           )}
-          <p className="auth-switch">
-            {register ? '已经有账户？' : '第一次使用？'}{' '}
-            <button
-              type="button"
-              className="text-button"
-              disabled={mutation.isPending}
-              onClick={() => {
-                setRegister(!register);
-                mutation.reset();
-              }}
-            >
-              {register ? '登录' : '创建账户'}
-            </button>
-          </p>
+          {registration === 'closed' && !register ? (
+            <p className="auth-switch">此部署未开放注册，账户由管理员开通</p>
+          ) : (
+            <p className="auth-switch">
+              {register ? '已经有账户？' : '第一次使用？'}{' '}
+              <button
+                type="button"
+                className="text-button"
+                disabled={mutation.isPending}
+                onClick={() => {
+                  setRegister(!register);
+                  mutation.reset();
+                }}
+              >
+                {register ? '登录' : '创建账户'}
+              </button>
+            </p>
+          )}
           <div className="secure-note">
             <ShieldCheck size={15} /> 登录凭据使用 HttpOnly Cookie 保管
           </div>
@@ -327,7 +358,14 @@ function Console({ identity }: { identity: Identity }) {
     [clock, setClock] = useState(Date.now()),
     [tab, setTab] = useState<'conversation' | 'events' | 'repositories'>('conversation'),
     [writeSuspended, setWriteSuspended] = useState(false),
-    [theme, setTheme] = useState<'system' | 'light' | 'dark'>('system');
+    [theme, setTheme] = useState<'system' | 'light' | 'dark'>(() => {
+      try {
+        const saved = localStorage.getItem(THEME_KEY);
+        return saved === 'light' || saved === 'dark' ? saved : 'system';
+      } catch {
+        return 'system';
+      }
+    });
   const operations = useOperations(),
     hadLive = useRef(false);
   useEffect(() => {
@@ -338,6 +376,13 @@ function Console({ identity }: { identity: Identity }) {
         theme === 'dark' || (theme === 'system' && !!media?.matches),
       );
     apply();
+    try {
+      // Only an explicit per-device appearance choice is stored; nothing account-related.
+      if (theme === 'system') localStorage.removeItem(THEME_KEY);
+      else localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      // Storage may be unavailable; the choice then lasts for this page only.
+    }
     media?.addEventListener('change', apply);
     return () => media?.removeEventListener('change', apply);
   }, [theme]);
@@ -517,6 +562,22 @@ function Console({ identity }: { identity: Identity }) {
     }, 10000);
     return () => clearInterval(timer);
   }, [holding, id, identity.controller.id, client]);
+  const leaseHolder = leaseActive(lease, clock) ? lease?.controllerId : undefined,
+    previousHolder = useRef({ id, holder: leaseHolder });
+  useEffect(() => {
+    const before = previousHolder.current;
+    previousHolder.current = { id, holder: leaseHolder };
+    // A device that logged in after this list loaded would otherwise show only as a raw ID.
+    if (leaseHolder && !controllers.data?.controllers.some((c) => c.id === leaseHolder))
+      void controllers.refetch();
+    if (
+      before.id === id &&
+      before.holder === identity.controller.id &&
+      leaseHolder &&
+      leaseHolder !== identity.controller.id
+    )
+      setNotice('控制权已被其他设备接管，当前为只读模式');
+  }, [id, leaseHolder]);
   return (
     <div className="shell">
       <aside className={`sidebar ${mobileMenu ? 'open' : ''}`}>
@@ -846,21 +907,40 @@ function Console({ identity }: { identity: Identity }) {
                     <div className="hero-glyph">
                       <CommandIcon size={33} />
                     </div>
-                    <span className="eyebrow">READY WHEN YOU ARE</span>
-                    <h2>接下来，做点什么？</h2>
-                    <p>
-                      选择左侧会话，查看 DSH 的工作进展
-                      <br />
-                      或创建一个新会话，开始你的下一个任务
-                    </p>
-                    <button
-                      className="primary"
-                      disabled={!holding || !online}
-                      onClick={() => setModal('session')}
-                    >
-                      <Plus size={17} />
-                      新建会话
-                    </button>
+                    {online ? (
+                      <>
+                        <span className="eyebrow">READY WHEN YOU ARE</span>
+                        <h2>接下来，做点什么？</h2>
+                        <p>
+                          选择左侧会话，查看 DSH 的工作进展
+                          <br />
+                          {holding
+                            ? '或创建一个新会话，开始你的下一个任务'
+                            : '获取控制权后，可以创建新会话并发送消息'}
+                        </p>
+                        <button
+                          className="primary"
+                          disabled={!holding}
+                          onClick={() => setModal('session')}
+                        >
+                          <Plus size={17} />
+                          新建会话
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="eyebrow">WAITING FOR CONNECTOR</span>
+                        <h2>等待实例上线</h2>
+                        <p>
+                          这台实例尚未连接到中继
+                          <br />
+                          在运行 DSH 的机器上配置出站 Connector 后会自动上线
+                        </p>
+                        <button className="primary" onClick={() => setModal('status')}>
+                          查看实例状态
+                        </button>
+                      </>
+                    )}
                     <div className="empty-features">
                       <span>
                         <MessageSquare size={18} /> 持续对话
