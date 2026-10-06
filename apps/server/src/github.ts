@@ -11,6 +11,18 @@ import { initializeGitHubStore } from './github-store.ts';
 type Row = Record<string, string | number | null>;
 export type GitHubAuth = { userId: string; controllerId: string; tokenHash: string };
 export type RepositoryContext = { referenceId: string; path: string; expectedRemoteUrl: string };
+/** A completed "Sign in with GitHub" exchange, handed to the relay to open a session. */
+export interface GitHubSignIn {
+  githubId: number;
+  login: string;
+  accessToken: string;
+  expiresIn: number;
+  deviceName: string;
+  /** A valid invite code was presented when the flow started. */
+  invited: boolean;
+}
+type Exchanged = { accessToken: string; expiresIn: number; githubId: number; login: string };
+const MAX_PENDING_SIGN_INS = 1000;
 export interface GitHubOptions {
   clientId?: string;
   clientSecret?: string;
@@ -334,6 +346,13 @@ export function createGitHubService(
       seal(verifier, `state:${hash(state)}`),
       expiresAt,
     );
+    return {
+      authorizationUrl: authorizationUrl(state, verifier),
+      expiresAt,
+      cookie: flowCookie(browser),
+    };
+  }
+  function authorizationUrl(state: string, verifier: string) {
     const url = new URL('https://github.com/login/oauth/authorize');
     url.search = new URLSearchParams({
       client_id: options.clientId!,
@@ -342,11 +361,142 @@ export function createGitHubService(
       code_challenge: createHash('sha256').update(verifier).digest('base64url'),
       code_challenge_method: 'S256',
     }).toString();
-    return {
-      authorizationUrl: url.href,
+    return url.href;
+  }
+  const flowCookie = (browser: string) =>
+    `dsh_github_flow=${browser}; HttpOnly; Path=/github/callback; SameSite=Lax; Max-Age=600${callback!.protocol === 'https:' ? '; Secure' : ''}`;
+  /**
+   * Starts "Sign in with GitHub" for a signed-out browser. The same GitHub App, callback and
+   * browser-bound state/PKCE rules as repository authorization apply.
+   */
+  function startSignIn(deviceName: string, invited: boolean) {
+    configured();
+    const now = Date.now();
+    run('DELETE FROM github_login_states WHERE expires_at<=?', now);
+    // Unauthenticated callers cannot grow the table without bound.
+    if (Number(get('SELECT COUNT(*) AS n FROM github_login_states')!.n) >= MAX_PENDING_SIGN_INS)
+      fail(429, 'RATE_LIMITED', 'Too many pending sign-ins; try again shortly');
+    const state = random(),
+      browser = random(),
+      verifier = random(),
+      expiresAt = now + 10 * 60_000;
+    run(
+      'INSERT INTO github_login_states(state_hash,browser_hash,verifier_ciphertext,device_name,invited,expires_at) VALUES(?,?,?,?,?,?)',
+      hash(state),
+      hash(browser),
+      seal(verifier, `login:${hash(state)}`),
+      deviceName,
+      invited ? 1 : 0,
       expiresAt,
-      cookie: `dsh_github_flow=${browser}; HttpOnly; Path=/github/callback; SameSite=Lax; Max-Age=600${callback!.protocol === 'https:' ? '; Secure' : ''}`,
+    );
+    return {
+      authorizationUrl: authorizationUrl(state, verifier),
+      expiresAt,
+      cookie: flowCookie(browser),
     };
+  }
+  async function exchange(code: string, verifier: string): Promise<Exchanged> {
+    const token = await request('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: options.clientId!,
+        client_secret: options.clientSecret!,
+        code,
+        redirect_uri: callback!.href,
+        code_verifier: verifier,
+      }).toString(),
+    });
+    if (
+      token.error ||
+      typeof token.access_token !== 'string' ||
+      !/^ghu_[A-Za-z0-9_]+$/.test(token.access_token) ||
+      typeof token.expires_in !== 'number' ||
+      token.expires_in < 1 ||
+      token.expires_in > 28800
+    )
+      return fail(
+        502,
+        'GITHUB_TOKEN_REJECTED',
+        'GitHub must issue an expiring user token; restart authorization',
+      );
+    const user = await request('https://api.github.com/user', {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${token.access_token}`,
+        'X-GitHub-Api-Version': '2026-03-10',
+        'User-Agent': 'DSH-Remote',
+      },
+    });
+    return {
+      accessToken: token.access_token,
+      expiresIn: token.expires_in,
+      githubId: integer(user.id, 'GitHub account ID'),
+      login: text(user.login, 'GitHub login', 100),
+    };
+  }
+  /** Stores the access grant and, when neither side is linked yet, the sign-in identity. */
+  function storeGrant(userId: string, controllerId: string, grant: Exchanged) {
+    run(
+      'INSERT INTO github_accounts(user_id,github_id,login,token_ciphertext,token_expires_at,controller_id,connected_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET github_id=excluded.github_id,login=excluded.login,token_ciphertext=excluded.token_ciphertext,token_expires_at=excluded.token_expires_at,controller_id=excluded.controller_id,connected_at=excluded.connected_at',
+      userId,
+      grant.githubId,
+      grant.login,
+      seal(grant.accessToken, `account:${userId}`),
+      Date.now() + grant.expiresIn * 1000,
+      controllerId,
+      Date.now(),
+    );
+    run(
+      'INSERT OR IGNORE INTO github_identities(github_id,user_id,login,linked_at) VALUES(?,?,?,?)',
+      grant.githubId,
+      userId,
+      grant.login,
+      Date.now(),
+    );
+  }
+  function identityUser(githubId: number): string | null {
+    const row = get('SELECT user_id FROM github_identities WHERE github_id=?', githubId);
+    return row ? String(row.user_id) : null;
+  }
+  function identityLogin(userId: string): string | null {
+    const row = get('SELECT login FROM github_identities WHERE user_id=?', userId);
+    return row ? String(row.login) : null;
+  }
+  async function finishSignIn(url: URL, state: string, browser: string) {
+    const row = get('SELECT * FROM github_login_states WHERE state_hash=?', hash(state));
+    if (
+      !row ||
+      row.consumed !== 0 ||
+      !timingSafeEqual(Buffer.from(String(row.browser_hash)), Buffer.from(hash(browser))) ||
+      Number(row.expires_at) <= Date.now()
+    )
+      return fail(
+        400,
+        'GITHUB_INVALID_STATE',
+        'GitHub sign-in expired or belongs to another browser; start again',
+      );
+    // Consume before exchange: simultaneous callbacks and failed exchanges cannot replay.
+    if (
+      run('UPDATE github_login_states SET consumed=1 WHERE state_hash=? AND consumed=0', hash(state))
+        .changes !== 1
+    )
+      return fail(400, 'GITHUB_INVALID_STATE', 'GitHub sign-in was already used');
+    try {
+      if (url.searchParams.has('error')) return { outcome: 'cancelled' as const };
+      const exchanged = await exchange(
+        text(url.searchParams.get('code'), 'code', 1000),
+        unseal(String(row.verifier_ciphertext), `login:${hash(state)}`),
+      );
+      const identity: GitHubSignIn = {
+        ...exchanged,
+        deviceName: String(row.device_name),
+        invited: row.invited === 1,
+      };
+      return { outcome: 'signin' as const, identity };
+    } finally {
+      run('DELETE FROM github_login_states WHERE state_hash=?', hash(state));
+    }
   }
   async function finishAuthorization(req: Request) {
     configured();
@@ -360,6 +510,8 @@ export function createGitHubService(
         .find((v) => v.startsWith('dsh_github_flow='))
         ?.slice('dsh_github_flow='.length) ?? '';
     const row = get('SELECT * FROM github_auth_states WHERE state_hash=?', hash(state));
+    if (!row && get('SELECT 1 FROM github_login_states WHERE state_hash=?', hash(state)))
+      return finishSignIn(url, state, browser);
     if (
       !row ||
       row.consumed !== 0 ||
@@ -385,43 +537,12 @@ export function createGitHubService(
       return fail(400, 'GITHUB_INVALID_STATE', 'GitHub authorization was already consumed');
     if (url.searchParams.has('error')) {
       run('DELETE FROM github_auth_states WHERE state_hash=?', hash(state));
-      return { outcome: 'cancelled' };
+      return { outcome: 'cancelled' as const };
     }
-    const code = text(url.searchParams.get('code'), 'code', 1000);
-    const token = await request('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: options.clientId!,
-        client_secret: options.clientSecret!,
-        code,
-        redirect_uri: callback!.href,
-        code_verifier: unseal(String(row.verifier_ciphertext), `state:${hash(state)}`),
-      }).toString(),
-    });
-    if (
-      token.error ||
-      typeof token.access_token !== 'string' ||
-      !/^ghu_[A-Za-z0-9_]+$/.test(token.access_token) ||
-      typeof token.expires_in !== 'number' ||
-      token.expires_in < 1 ||
-      token.expires_in > 28800
-    )
-      return fail(
-        502,
-        'GITHUB_TOKEN_REJECTED',
-        'GitHub must issue an expiring user token; restart authorization',
-      );
-    const user = await request('https://api.github.com/user', {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${token.access_token}`,
-        'X-GitHub-Api-Version': '2026-03-10',
-        'User-Agent': 'DSH-Remote',
-      },
-    });
-    const githubId = integer(user.id, 'GitHub account ID'),
-      login = text(user.login, 'GitHub login', 100);
+    const exchanged = await exchange(
+      text(url.searchParams.get('code'), 'code', 1000),
+      unseal(String(row.verifier_ciphertext), `state:${hash(state)}`),
+    );
     assertSession(auth);
     // A newer authorization started while exchange was pending wins; this callback cannot overwrite it.
     if (
@@ -432,19 +553,11 @@ export function createGitHubService(
       )
     )
       fail(409, 'GITHUB_AUTH_CHANGED', 'GitHub connection was cancelled or replaced; start again');
-    run(
-      'INSERT INTO github_accounts(user_id,github_id,login,token_ciphertext,token_expires_at,controller_id,connected_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET github_id=excluded.github_id,login=excluded.login,token_ciphertext=excluded.token_ciphertext,token_expires_at=excluded.token_expires_at,controller_id=excluded.controller_id,connected_at=excluded.connected_at',
-      auth.userId,
-      githubId,
-      login,
-      seal(token.access_token, `account:${auth.userId}`),
-      Date.now() + token.expires_in * 1000,
-      auth.controllerId,
-      Date.now(),
-    );
+    // Connecting also links the GitHub account for sign-in, unless either side is linked already.
+    storeGrant(auth.userId, auth.controllerId, exchanged);
     run('DELETE FROM github_auth_states WHERE state_hash=?', hash(state));
     // Refresh tokens are intentionally discarded; users reconnect after eight hours.
-    return { outcome: 'connected' };
+    return { outcome: 'connected' as const };
   }
   function cancelAuthorization(auth: GitHubAuth) {
     assertSession(auth);
@@ -786,6 +899,14 @@ export function createGitHubService(
     recordInspection,
     markInspectionStale,
     install,
+    startSignIn,
+    storeGrant,
+    identityUser,
+    identityLogin,
+    /** "Sign in with GitHub" needs the same complete configuration as repository access. */
+    get signInAvailable() {
+      return !missing.length && !configError;
+    },
     callbackOrigin: callback?.origin,
   };
 }

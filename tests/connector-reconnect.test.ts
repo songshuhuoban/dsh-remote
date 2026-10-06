@@ -12,9 +12,13 @@ const databasePath = join(dir, 'relay.sqlite');
 let relay = createRelay({ databasePath, port: 0, registration: true });
 const port = relay.server.port;
 const base = `http://127.0.0.1:${port}`;
-const child = spawn(process.execPath, [join(import.meta.dir, '../packages/connector/src/index.ts')], {
-  stdio: ['pipe', 'pipe', 'inherit'],
-});
+const child = spawn(
+  process.execPath,
+  [join(import.meta.dir, '../packages/connector/src/index.ts')],
+  {
+    stdio: ['pipe', 'pipe', 'inherit'],
+  },
+);
 const frames: any[] = [];
 const waiters = new Set<() => void>();
 createInterface({ input: child.stdout! }).on('line', (line) => {
@@ -82,7 +86,10 @@ test('a dropped relay is retried with a published countdown, and "retry" skips t
   await relay.stop();
   await dropped;
   // Backoff grows while the relay stays away; every scheduled attempt announces its time.
-  const waiting = await next((f) => f.type === 'status' && f.nextRetryAt - Date.now() > 2500, 20_000);
+  const waiting = await next(
+    (f) => f.type === 'status' && f.nextRetryAt - Date.now() > 2500,
+    20_000,
+  );
   expect(waiting.state).toBe('unreachable');
   expect(waiting.attempt).toBeGreaterThan(1);
 

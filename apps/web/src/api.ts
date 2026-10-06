@@ -1,4 +1,5 @@
-export type User = { id: string; email: string };
+/** `github` is the linked GitHub login, used for "Sign in with GitHub". */
+export type User = { id: string; email: string; github?: string | null };
 export type Controller = {
   active?: boolean;
   id: string;
@@ -77,6 +78,12 @@ const ERROR_TEXT: Record<string, string> = {
   ACCOUNT_EXISTS: '该邮箱已注册，请直接登录',
   REGISTRATION_DISABLED: '此部署未开放注册，请联系管理员',
   INVITE_REQUIRED: '邀请码无效，请向管理员确认',
+  GITHUB_INVITE_REQUIRED: '首次使用 GitHub 登录需要邀请码，填写后再试一次',
+  GITHUB_CANCELLED: '已取消 GitHub 授权',
+  GITHUB_INVALID_STATE: 'GitHub 授权已过期或不是从此浏览器发起，请重试',
+  GITHUB_TOKEN_REJECTED: 'GitHub 授权未完成，请重试',
+  GITHUB_UNAVAILABLE: '暂时无法连接 GitHub，请稍后再试',
+  GITHUB_NOT_CONFIGURED: '此部署未启用 GitHub 登录',
   RATE_LIMITED: '尝试次数过多，请稍后再试',
   UNAUTHENTICATED: '登录已失效，请重新登录',
   INSTANCE_OFFLINE: 'DSH 实例当前离线',

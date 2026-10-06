@@ -23,10 +23,30 @@ Secrets (never in the repository):
 
 ```sh
 wrangler secret put REGISTRATION_INVITE_CODE -c cloudflare/wrangler.jsonc
-# Optional read-only GitHub App, see docs/github-repositories.md:
-# GITHUB_APP_CLIENT_ID, GITHUB_APP_CLIENT_SECRET, GITHUB_APP_SLUG,
-# GITHUB_CALLBACK_URL (https://<domain>/github/callback), GITHUB_TOKEN_ENCRYPTION_KEY
 ```
+
+### GitHub sign-in and repository access (optional)
+
+One GitHub App serves both "Sign in with GitHub" and read-only repository discovery
+([details](github-repositories.md)). Register it under *Settings → Developer settings → GitHub Apps*:
+
+- Callback URL `https://<domain>/github/callback`; keep *Expire user authorization tokens* on;
+  leave *Request user authorization during installation* and *Device flow* off
+- Setup URL `https://<domain>/` (optional); Webhook inactive
+- Repository permissions: *Contents* read-only and *Metadata* read-only; nothing else
+- Installable by *Any account* when other relay users should connect their own repositories
+
+Then set the public values as `vars` in `wrangler.jsonc` (`GITHUB_APP_CLIENT_ID`, `GITHUB_APP_SLUG`,
+`GITHUB_CALLBACK_URL`) and the two secrets:
+
+```sh
+wrangler secret put GITHUB_APP_CLIENT_SECRET -c cloudflare/wrangler.jsonc
+# 32 random bytes, base64; changing it later only forces users to reconnect GitHub
+openssl rand -base64 32 | wrangler secret put GITHUB_TOKEN_ENCRYPTION_KEY -c cloudflare/wrangler.jsonc
+```
+
+With all five present, `/health` reports `githubSignIn: true` and the sign-in page offers
+*使用 GitHub 继续*.
 
 ## Deploy
 

@@ -6,6 +6,20 @@ This feature connects a **deployment-configured GitHub App** to an existing DSH 
 
 Deterministic GitHub protocol fixtures exercise the OAuth exchange, state, PKCE, expiry, permissions, and denial cases. They are **not a live GitHub OAuth E2E**. Deployment credentials, actual consent, organization approval, and a real GitHub callback still require operator/user setup and a live acceptance run. This implementation does not create a GitHub App, grant external access, or publish this project's source repository.
 
+## Sign in with GitHub
+
+The same GitHub App also signs people in. `POST /api/auth/github` starts a browser-bound flow with
+the same state, PKCE, cookie and one-time rules as repository authorization below, and the shared
+`/github/callback` tells the two apart by state. The relay keys accounts by the immutable GitHub
+user ID in `github_identities`, never by email: a linked GitHub user signs in to that account, and
+an unlinked one gets a new, password-less account only when registration allows it (in invite mode,
+the invite code must accompany the start request). Connecting GitHub for repositories from a
+password account links that GitHub user too, so either sign-in method reaches the same account. A
+link is created only when neither side is linked yet and is never re-pointed; disconnecting
+repository access leaves it in place. Sign-in stores the repository grant as well, so a fresh
+GitHub sign-in can list repositories immediately. Native clients cannot start it, for the same
+cookie-binding reason as below.
+
 ## Why a GitHub App
 
 A GitHub App lets its installer choose repositories and use targeted read permissions. The selected deployment must request only **Contents: read** and **Metadata: read**. Traditional OAuth `repo` scope is broader than this product needs. The server uses a short-lived **GitHub App user access token**, so discovery is bounded by the intersection of the app's installation grant and the signed-in GitHub user's access. No app private key or installation token is needed for this read-only discovery flow.

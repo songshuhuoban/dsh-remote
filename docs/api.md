@@ -4,9 +4,10 @@ All non-public routes require a session cookie or `Authorization: Bearer …`. N
 
 ## HTTP
 
-- `GET /health`: readiness, protocol version and `registration` (`open`, `invite` or `closed`)
+- `GET /health`: readiness, protocol version, `registration` (`open`, `invite` or `closed`) and `githubSignIn` (the GitHub App is configured)
 - `POST /api/auth/register`: `{email,password,deviceName,inviteCode?}`; requires explicit operator registration enablement, and the invite code in invite mode. Passwords need at least 8 characters
 - `POST /api/auth/login`: same fields; returns `{user,controller}` and an HttpOnly cookie; originless native callers also receive `token`
+- `POST /api/auth/github`: `{deviceName,inviteCode?}` from a browser (an `Origin` is required; native callers get `409 GITHUB_BROWSER_REQUIRED`). Returns `{authorizationUrl,expiresAt}` plus the HttpOnly flow cookie; navigate to the URL in the same browser. GitHub returns to `/github/callback`, which signs in the account linked to that GitHub user and redirects to `/?github=signed_in` with the session cookie. An unlinked GitHub user gets a new account only when registration is open, or in invite mode when a valid `inviteCode` was sent at start; otherwise the redirect carries `INVITE_REQUIRED` or `REGISTRATION_DISABLED`. A wrong invite code fails the start with `403 INVITE_REQUIRED`. Accounts created this way have no password. Sign-in also stores the GitHub repository grant, and connecting GitHub from a password account links that GitHub user for later sign-in (never re-pointing an existing link). `GET /api/me` includes `user.github`, the linked login or `null`
 - `POST /api/auth/logout`: revokes the login/controller session, event sockets and owned writer lease
 - `GET /api/me`: `{user:{id,email},controller:{id,name,createdAt}}`
 - `GET /api/controllers`: `{controllers:[…]}`; a controller is registered through login on that device

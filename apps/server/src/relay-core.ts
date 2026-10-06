@@ -13,7 +13,12 @@ import {
 import type { SqlDatabase } from './db.ts';
 import type { PasswordHasher } from './passwords.ts';
 import { validateCommand } from './validation.ts';
-import { createGitHubService, GitHubError, type GitHubOptions } from './github.ts';
+import {
+  createGitHubService,
+  GitHubError,
+  type GitHubOptions,
+  type GitHubSignIn,
+} from './github.ts';
 import { githubCallback, githubRoutes } from './github-routes.ts';
 
 type Row = Record<string, string | number | null>;
@@ -69,6 +74,8 @@ export interface RelayOptions {
   publicOrigin?: string;
   secureCookies?: boolean;
   github?: GitHubOptions;
+  /** GitHub network transport; injected only by deterministic protocol tests. */
+  githubTransport?: typeof fetch;
   heartbeatStaleMs?: number;
   heartbeatDisconnectMs?: number;
   /** Durable event history kept for replay; older rows are pruned. */
@@ -86,6 +93,8 @@ class HttpError extends Error {
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 const token = () => randomBytes(32).toString('base64url');
 const uid = (kind: string) => `${kind}_${crypto.randomUUID()}`;
+/** Password hash of accounts created by "Sign in with GitHub"; no password can match it. */
+const GITHUB_ONLY = '!github';
 const object = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
 function string(value: unknown, name: string, max = 200): string {
@@ -132,7 +141,7 @@ export function createRelayCore(
   options: RelayOptions,
   platform: RelayPlatform,
 ) {
-  const github = createGitHubService(db, options.github);
+  const github = createGitHubService(db, options.github, options.githubTransport);
   const leaseMs = options.leaseMs ?? 30_000;
   const sessionMs = options.sessionMs ?? 7 * 24 * 60 * 60 * 1000;
   const commandMs = options.commandMs ?? 30_000;
@@ -381,6 +390,58 @@ export function createRelayCore(
         'This login is bound to a different controller',
       );
   }
+  /** Registers a controller for this sign-in and returns its new session secret. */
+  function openSession(userId: string, deviceName: string, now = Date.now()) {
+    const controllerId = uid('ctl'),
+      raw = token();
+    run(
+      'INSERT INTO controllers(id,user_id,name,created_at) VALUES(?,?,?,?)',
+      controllerId,
+      userId,
+      deviceName,
+      now,
+    );
+    run(
+      'INSERT INTO auth_sessions(token_hash,user_id,controller_id,expires_at) VALUES(?,?,?,?)',
+      digest(raw),
+      userId,
+      controllerId,
+      now + sessionMs,
+    );
+    return { raw, controllerId };
+  }
+  const sessionCookie = (raw: string, url: URL) =>
+    `dsh_session=${raw}; HttpOnly; Path=/; SameSite=Strict; Max-Age=${Math.floor(sessionMs / 1000)}${options.secureCookies === true || url.protocol === 'https:' ? '; Secure' : ''}`;
+  const validInvite = (value: unknown) =>
+    typeof value === 'string' && !!options.inviteCode && digest(value.trim()) === digest(options.inviteCode);
+  /** Completes "Sign in with GitHub": a linked account signs in, an unknown one may register. */
+  function githubSignIn(identity: GitHubSignIn, url: URL): string {
+    const now = Date.now();
+    let userId = github.identityUser(identity.githubId);
+    if (!userId) {
+      if (!identity.invited)
+        throw new GitHubError(
+          403,
+          options.registration === true ? 'INVITE_REQUIRED' : 'REGISTRATION_DISABLED',
+          'This GitHub account has no relay account yet',
+        );
+      userId = uid('usr');
+      try {
+        run(
+          'INSERT INTO users(id,email,password_hash,created_at) VALUES(?,?,?,?)',
+          userId,
+          `${identity.githubId}+${identity.login}@users.noreply.github.com`.toLowerCase(),
+          GITHUB_ONLY,
+          now,
+        );
+      } catch {
+        throw new GitHubError(409, 'ACCOUNT_EXISTS', 'Account already exists');
+      }
+    }
+    const { raw, controllerId } = openSession(userId, identity.deviceName, now);
+    github.storeGrant(userId, controllerId, identity);
+    return sessionCookie(raw, url);
+  }
   function limitAttempts(key: string) {
     const now = Date.now(),
       limit = attempts.get(key);
@@ -465,9 +526,16 @@ export function createRelayCore(
         const url = new URL(req.url),
           path = url.pathname;
         if (path === '/health')
-          return json({ ok: true, protocol: 1, registration: registrationMode });
+          return json({
+            ok: true,
+            protocol: 1,
+            registration: registrationMode,
+            githubSignIn: github.signInAvailable,
+          });
         checkOrigin(req);
-        const githubReturn = await githubCallback(req, github);
+        const githubReturn = await githubCallback(req, github, (identity) =>
+          githubSignIn(identity, url),
+        );
         if (githubReturn) return githubReturn;
         if (req.method === 'OPTIONS')
           return new Response(null, {
@@ -541,6 +609,26 @@ export function createRelayCore(
             connectorToken,
           });
         }
+        if (path === '/api/auth/github') {
+          // Browser-only: the flow cookie must come back with GitHub's redirect.
+          if (req.method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', 'POST required');
+          if (!req.headers.has('origin'))
+            throw new HttpError(409, 'GITHUB_BROWSER_REQUIRED', 'Sign in with GitHub from a browser');
+          limitAttempts(`signin:${io.ip}`);
+          const input = await body(req),
+            deviceName = string(input.deviceName ?? 'Controller', 'deviceName', 80);
+          if (input.inviteCode !== undefined && input.inviteCode !== '' && !validInvite(input.inviteCode))
+            throw new HttpError(403, 'INVITE_REQUIRED', 'A valid invite code is required');
+          // Whether an unknown GitHub account may create a relay account at the callback.
+          const mayRegister =
+            options.registration === true && (!options.inviteCode || validInvite(input.inviteCode));
+          const started = github.startSignIn(deviceName, mayRegister);
+          return json(
+            { authorizationUrl: started.authorizationUrl, expiresAt: started.expiresAt },
+            200,
+            { 'Set-Cookie': started.cookie, 'Cache-Control': 'no-store' },
+          );
+        }
         if (path === '/api/auth/register' || path === '/api/auth/login') {
           if (req.method !== 'POST')
             throw new HttpError(405, 'METHOD_NOT_ALLOWED', 'POST required');
@@ -567,11 +655,7 @@ export function createRelayCore(
           if (path.endsWith('register')) {
             if (options.registration !== true)
               throw new HttpError(403, 'REGISTRATION_DISABLED', 'Registration is disabled');
-            if (
-              options.inviteCode &&
-              (typeof input.inviteCode !== 'string' ||
-                digest(input.inviteCode.trim()) !== digest(options.inviteCode))
-            )
+            if (options.inviteCode && !validInvite(input.inviteCode))
               throw new HttpError(403, 'INVITE_REQUIRED', 'A valid invite code is required');
             if (user) throw new HttpError(409, 'ACCOUNT_EXISTS', 'Account already exists');
             const hash = await platform.passwords.hash(password);
@@ -587,24 +671,13 @@ export function createRelayCore(
               throw new HttpError(409, 'ACCOUNT_EXISTS', 'Account already exists');
             }
             user = get('SELECT * FROM users WHERE email=?', email)!;
-          } else if (!user || !(await platform.passwords.verify(password, String(user.password_hash))))
+          } else if (
+            !user ||
+            user.password_hash === GITHUB_ONLY ||
+            !(await platform.passwords.verify(password, String(user.password_hash)))
+          )
             throw new HttpError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect');
-          const controllerId = uid('ctl');
-          run(
-            'INSERT INTO controllers(id,user_id,name,created_at) VALUES(?,?,?,?)',
-            controllerId,
-            String(user.id),
-            deviceName,
-            now,
-          );
-          const raw = token();
-          run(
-            'INSERT INTO auth_sessions(token_hash,user_id,controller_id,expires_at) VALUES(?,?,?,?)',
-            digest(raw),
-            String(user.id),
-            controllerId,
-            now + sessionMs,
-          );
+          const { raw, controllerId } = openSession(String(user.id), deviceName, now);
           return json(
             {
               user: { id: user.id, email: user.email },
@@ -615,9 +688,7 @@ export function createRelayCore(
               ...(req.headers.has('origin') ? {} : { token: raw }),
             },
             path.endsWith('register') ? 201 : 200,
-            {
-              'Set-Cookie': `dsh_session=${raw}; HttpOnly; Path=/; SameSite=Strict; Max-Age=${Math.floor(sessionMs / 1000)}${options.secureCookies === true || url.protocol === 'https:' ? '; Secure' : ''}`,
-            },
+            { 'Set-Cookie': sessionCookie(raw, url) },
           );
         }
         if (path.startsWith('/api/') || path === '/ws/events') {
@@ -651,7 +722,7 @@ export function createRelayCore(
           if (path === '/api/me' && req.method === 'GET') {
             const user = get('SELECT id,email FROM users WHERE id=?', auth.userId)!;
             return json({
-              user,
+              user: { ...user, github: github.identityLogin(auth.userId) },
               controller: controllerView(
                 get('SELECT * FROM controllers WHERE id=?', auth.controllerId)!,
               ),

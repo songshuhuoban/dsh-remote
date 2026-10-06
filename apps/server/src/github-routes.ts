@@ -1,4 +1,4 @@
-import { GitHubError, type GitHubAuth, type GitHubService } from './github.ts';
+import { GitHubError, type GitHubAuth, type GitHubService, type GitHubSignIn } from './github.ts';
 
 const response = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
   Response.json(data, {
@@ -11,16 +11,28 @@ const page = (url: URL, name = 'page') => {
     throw new GitHubError(400, 'INVALID_REPOSITORY_INPUT', `${name} must be a positive integer`);
   return Number(value);
 };
+/**
+ * One callback serves both repository authorization and "Sign in with GitHub"; the state decides.
+ * `signIn` opens a relay session for a completed sign-in and returns its Set-Cookie value.
+ */
 export async function githubCallback(
   req: Request,
   github: GitHubService,
+  signIn: (identity: GitHubSignIn) => string = () => {
+    throw new GitHubError(503, 'GITHUB_NOT_CONFIGURED', 'Sign-in is not available here');
+  },
 ): Promise<Response | null> {
   if (new URL(req.url).pathname !== '/github/callback') return null;
   if (req.method !== 'GET')
     return response({ error: { code: 'METHOD_NOT_ALLOWED', message: 'GET required' } }, 405);
-  let outcome: string;
+  let outcome: string,
+    session: string | undefined;
   try {
-    outcome = (await github.finishAuthorization(req)).outcome;
+    const result = await github.finishAuthorization(req);
+    if (result.outcome === 'signin') {
+      session = signIn(result.identity);
+      outcome = 'signed_in';
+    } else outcome = result.outcome;
   } catch (error) {
     if (!(error instanceof GitHubError)) throw error;
     // The callback never echoes codes, tokens, state, or provider error text.
@@ -28,17 +40,16 @@ export async function githubCallback(
       return response({ error: { code: error.code, message: error.message } }, error.status);
     outcome = error.code;
   }
-  return new Response(null, {
-    status: 303,
-    headers: {
-      Location: `${github.callbackOrigin}/?github=${encodeURIComponent(outcome)}`,
-      'Cache-Control': 'no-store',
-      'Referrer-Policy': 'no-referrer',
-      // Do not clear the shared browser cookie here: a delayed callback response
-      // can arrive after a newer flow has replaced it, invalidating that flow.
-      // It expires after ten minutes; consumed/removed server state prevents replay.
-    },
+  const headers = new Headers({
+    Location: `${github.callbackOrigin}/?github=${encodeURIComponent(outcome)}`,
+    'Cache-Control': 'no-store',
+    'Referrer-Policy': 'no-referrer',
   });
+  // Do not clear the shared browser cookie here: a delayed callback response
+  // can arrive after a newer flow has replaced it, invalidating that flow.
+  // It expires after ten minutes; consumed/removed server state prevents replay.
+  if (session) headers.append('Set-Cookie', session);
+  return new Response(null, { status: 303, headers });
 }
 export async function githubRoutes(
   req: Request,

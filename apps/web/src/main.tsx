@@ -140,9 +140,16 @@ function SignedInApp() {
     </OperationsProvider>
   );
 }
+/** Outcome of a "Sign in with GitHub" round trip, read once and removed from the address bar. */
+function takeGitHubOutcome() {
+  const value = new URLSearchParams(location.search).get('github');
+  if (value) history.replaceState(history.state, '', location.pathname);
+  return value;
+}
 function Auth({ error }: { error: unknown }) {
+  const [githubOutcome] = useState(takeGitHubOutcome);
   const client = useQueryClient(),
-    [register, setRegister] = useState(false),
+    [register, setRegister] = useState(githubOutcome === 'INVITE_REQUIRED'),
     [email, setEmail] = useState(''),
     [password, setPassword] = useState(''),
     [deviceName, setDeviceName] = useState('Web 控制台'),
@@ -151,10 +158,33 @@ function Auth({ error }: { error: unknown }) {
   // Older relays omit the mode; they behave as open registration.
   const health = useQuery({
     queryKey: ['health'],
-    queryFn: () => api<{ registration?: 'open' | 'invite' | 'closed' }>('/health'),
+    queryFn: () =>
+      api<{ registration?: 'open' | 'invite' | 'closed'; githubSignIn?: boolean }>('/health'),
     staleTime: 60_000,
   });
   const registration = health.data?.registration ?? 'open';
+  const github = useMutation({
+    mutationFn: () =>
+      api<{ authorizationUrl: string }>('/api/auth/github', {
+        method: 'POST',
+        body: JSON.stringify({
+          deviceName,
+          ...(register && registration === 'invite' && inviteCode.trim() ? { inviteCode } : {}),
+        }),
+      }),
+    onSuccess: ({ authorizationUrl }) => location.assign(authorizationUrl),
+  });
+  const githubError =
+    !githubOutcome || githubOutcome === 'signed_in'
+      ? null
+      : {
+          code:
+            githubOutcome === 'cancelled'
+              ? 'GITHUB_CANCELLED'
+              : githubOutcome === 'INVITE_REQUIRED'
+                ? 'GITHUB_INVITE_REQUIRED'
+                : githubOutcome,
+        };
   const authAttempt = useRef(0),
     authAbort = useRef<AbortController | null>(null);
   const mutation = useMutation({
@@ -238,12 +268,29 @@ function Auth({ error }: { error: unknown }) {
             />
           </label>
         )}
-        <Err error={mutation.error || error} />
+        <Err
+          error={
+            mutation.error ||
+            github.error ||
+            (mutation.isIdle && github.isIdle ? githubError : null) ||
+            error
+          }
+        />
         <div className="actions">
           <button className="primary" disabled={mutation.isPending}>
             {mutation.isPending ? <Spinner /> : null}
             {register ? '创建账户' : '登录'}
           </button>
+          {health.data?.githubSignIn && !mutation.isPending ? (
+            <button
+              type="button"
+              disabled={github.isPending || github.isSuccess}
+              onClick={() => github.mutate()}
+            >
+              {github.isPending || github.isSuccess ? <Spinner /> : null}
+              使用 GitHub 继续
+            </button>
+          ) : null}
           {mutation.isPending ? (
             <button
               className="text-button"
@@ -286,6 +333,11 @@ function Auth({ error }: { error: unknown }) {
   );
 }
 function Console({ identity }: { identity: Identity }) {
+  // Accounts created through GitHub carry a placeholder address; their GitHub login reads better.
+  const accountName =
+    identity.user.github && identity.user.email.endsWith('@users.noreply.github.com')
+      ? identity.user.github
+      : identity.user.email;
   const client = useQueryClient(),
     navigate = useNavigate({ from: '/' }),
     search = indexRoute.useSearch(),
@@ -336,6 +388,11 @@ function Console({ identity }: { identity: Identity }) {
   useEffect(() => {
     const result = new URLSearchParams(location.search).get('github');
     if (!result) return;
+    // A completed "Sign in with GitHub" lands here signed in; nothing to report.
+    if (result === 'signed_in') {
+      void navigate({ search: { instance: search.instance, session: search.session }, replace: true });
+      return;
+    }
     setTab('repositories');
     setNotice(
       result === 'connected'
@@ -656,9 +713,9 @@ function Console({ identity }: { identity: Identity }) {
             setMobileMenu(false);
           }}
         >
-          <span className="avatar">{identity.user.email[0]?.toUpperCase()}</span>
+          <span className="avatar">{accountName[0]?.toUpperCase()}</span>
           <span>
-            <strong>{identity.user.email}</strong>
+            <strong>{accountName}</strong>
             <small>{identity.controller.name}</small>
           </span>
         </button>

@@ -1,6 +1,9 @@
 import type { SqlDatabase as Database } from './db.ts';
 
-/** GitHub grants are separate from DSH sessions and repository readiness. */
+/**
+ * GitHub grants are separate from DSH sessions and repository readiness. The sign-in identity
+ * (github_identities) outlives the expiring access grant and is never re-pointed to another user.
+ */
 export function initializeGitHubStore(db: Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS github_accounts(
@@ -24,5 +27,14 @@ export function initializeGitHubStore(db: Database): void {
       UNIQUE(instance_id,url,local_path)
     );
     CREATE INDEX IF NOT EXISTS github_refs_owner ON github_repository_refs(user_id,instance_id);
+    CREATE TABLE IF NOT EXISTS github_identities(
+      github_id INTEGER PRIMARY KEY, user_id TEXT UNIQUE NOT NULL REFERENCES users(id),
+      login TEXT NOT NULL, linked_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS github_login_states(
+      state_hash TEXT PRIMARY KEY, browser_hash TEXT NOT NULL, verifier_ciphertext TEXT NOT NULL,
+      device_name TEXT NOT NULL, invited INTEGER NOT NULL, consumed INTEGER NOT NULL DEFAULT 0,
+      expires_at INTEGER NOT NULL
+    );
   `);
 }
