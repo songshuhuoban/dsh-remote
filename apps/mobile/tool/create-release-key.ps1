@@ -71,8 +71,15 @@ try {
   Set-Content -Path $passwordFile -Value $password -NoNewline -Encoding ascii
 
   function Set-Secret([string]$Name, [string]$Value) {
-    # Through stdin, so the value never appears on a command line or in the output.
-    $result = Invoke-Native $gh @('secret', 'set', $Name, '--repo', $Repo) -InputText $Value
+    # Byte-exact stdin from a file: piping a string from Windows PowerShell 5.1 adds a BOM and
+    # CRLF. The value never appears on a command line or in the output.
+    $file = Join-Path $BackupDir ".upload-$Name"
+    [IO.File]::WriteAllText($file, $Value, (New-Object System.Text.UTF8Encoding($false)))
+    try {
+      $result = Invoke-Native 'cmd.exe' @('/d', '/c', "`"$gh`" secret set $Name --repo $Repo < `"$file`"")
+    } finally {
+      Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+    }
     if ($result.Code -ne 0) { throw "Uploading $Name failed; the key is kept in $BackupDir. $($result.Output -join ' ')" }
   }
   Set-Secret 'ANDROID_KEYSTORE_BASE64' ([Convert]::ToBase64String([IO.File]::ReadAllBytes($keystore)))

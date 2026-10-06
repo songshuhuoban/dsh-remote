@@ -72,13 +72,12 @@ jobs:
             echo "::error::Release key missing; run apps/mobile/tool/create-release-key.ps1 once"
             exit 1
           fi
-          # Windows PowerShell 5.1 ends piped secrets with CRLF; all three values are
-          # whitespace-free (base64 / URL-safe), so line endings and spaces are stripped.
-          clean() { printf '%s' "$1" | tr -d '\r\n '; }
+          # Secrets piped from Windows PowerShell 5.1 can carry CRLF, a BOM or NUL bytes.
+          # Each value has a fixed alphabet, so everything else is dropped.
           export DSH_ANDROID_KEYSTORE="$RUNNER_TEMP/release.p12"
-          export DSH_ANDROID_KEYSTORE_PASSWORD="$(clean "$KEYSTORE_PASSWORD")"
-          export DSH_ANDROID_KEY_ALIAS="$(clean "$KEY_ALIAS")"
-          clean "$KEYSTORE_BASE64" | base64 -d > "$DSH_ANDROID_KEYSTORE"
+          export DSH_ANDROID_KEYSTORE_PASSWORD="$(printf '%s' "$KEYSTORE_PASSWORD" | tr -cd 'A-Za-z0-9_-')"
+          export DSH_ANDROID_KEY_ALIAS="$(printf '%s' "$KEY_ALIAS" | tr -cd 'a-z0-9-')"
+          printf '%s' "$KEYSTORE_BASE64" | tr -cd 'A-Za-z0-9+/=' | base64 -d > "$DSH_ANDROID_KEYSTORE"
           flutter build apk --release
           rm -f "$DSH_ANDROID_KEYSTORE"
           mkdir -p "$RUNNER_TEMP/release"
