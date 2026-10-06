@@ -12,11 +12,24 @@ export type LiveStream = {
   lastIndex: number;
   incomplete: boolean;
 };
+/** A silent socket for this long is treated as half-open and replaced. */
+const STALE_MS = 65_000;
+const PING_MS = 15_000;
+export interface StreamHealth {
+  /** Consecutive failed attempts since the last live stream. */
+  attempt: number;
+  /** When the next automatic attempt starts, while reconnecting. */
+  nextRetryAt?: number;
+  /** Last measured round trip to the relay, while live. */
+  latencyMs?: number;
+}
 export function useEvents(enabled: boolean) {
   const client = useQueryClient();
   const [state, setState] = useState<'connecting' | 'live' | 'reconnecting' | 'offline'>(
     'connecting',
   );
+  const [health, setHealth] = useState<StreamHealth>({ attempt: 0 });
+  const retryNow = useRef<() => void>(() => {});
   const [events, setEvents] = useState<RemoteEvent[]>([]);
   const [approvals, setApprovals] = useState<PendingApproval[]>([]);
   const [streams, setStreams] = useState<Record<string, LiveStream>>({});
@@ -34,10 +47,15 @@ export function useEvents(enabled: boolean) {
       reconnect: ReturnType<typeof setTimeout>,
       refresh: ReturnType<typeof setTimeout> | undefined,
       closed = false,
-      attempts = 0;
+      attempts = 0,
+      lastFrameAt = 0,
+      pingId = 0;
+    const pings = new Map<number, number>();
     const connect = () => {
       if (closed) return;
+      clearTimeout(reconnect);
       setState(attempts ? 'reconnecting' : 'connecting');
+      setHealth({ attempt: attempts });
       const current = new WebSocket(
         `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/events?after=${last.current}`,
       );
@@ -45,15 +63,25 @@ export function useEvents(enabled: boolean) {
       current.onopen = () => {
         if (closed || socket !== current) return;
         attempts = 0;
+        lastFrameAt = Date.now();
         void client.invalidateQueries({ queryKey: ['instances'] });
         void client.invalidateQueries({ queryKey: ['remote'] });
       };
       current.onmessage = ({ data }) => {
         if (closed || socket !== current) return;
+        lastFrameAt = Date.now();
         let frame: Record<string, unknown>;
         try {
           frame = JSON.parse(data);
         } catch {
+          return;
+        }
+        if (frame.type === 'keepalive') return;
+        if (frame.type === 'pong') {
+          const sentAt = pings.get(Number(frame.id));
+          pings.delete(Number(frame.id));
+          if (sentAt !== undefined)
+            setHealth({ attempt: 0, latencyMs: Math.round(performance.now() - sentAt) });
           return;
         }
         if (frame.type === 'snapshot') {
@@ -68,6 +96,8 @@ export function useEvents(enabled: boolean) {
         }
         if (frame.type === 'ready') {
           setState('live');
+          setHealth({ attempt: 0 });
+          ping();
           return;
         }
         if (frame.type === 'reset') {
@@ -148,30 +178,51 @@ export function useEvents(enabled: boolean) {
       current.onerror = () => current.close();
       current.onclose = () => {
         if (closed || socket !== current) return;
+        pings.clear();
         setState(navigator.onLine ? 'reconnecting' : 'offline');
         setStreams({});
-        reconnect = setTimeout(
-          connect,
-          Math.min(30_000, 1000 * 2 ** attempts++) + Math.random() * 400,
-        );
+        // Exponential backoff with jitter, capped at 30 s; network and focus events skip the wait.
+        const delay = Math.min(30_000, 1000 * 2 ** attempts++) + Math.random() * 400;
+        setHealth({ attempt: attempts, nextRetryAt: Date.now() + delay });
+        reconnect = setTimeout(connect, delay);
       };
     };
-    connect();
-    const onOnline = () => {
-      if (socket?.readyState !== WebSocket.OPEN) {
-        clearTimeout(reconnect);
-        socket?.close();
-        connect();
-      }
+    const ping = () => {
+      if (socket?.readyState !== WebSocket.OPEN) return;
+      pings.set(++pingId, performance.now());
+      socket.send(JSON.stringify({ v: 1, type: 'ping', id: pingId }));
     };
-    window.addEventListener('online', onOnline);
+    /** Skips the backoff wait: used for network recovery, tab focus and the manual retry. */
+    const resume = () => {
+      if (closed || socket?.readyState === WebSocket.OPEN) return;
+      attempts = Math.min(attempts, 1);
+      const previous = socket;
+      socket = undefined;
+      previous?.close();
+      connect();
+    };
+    retryNow.current = resume;
+    const watchdog = setInterval(() => {
+      if (socket?.readyState !== WebSocket.OPEN) return;
+      // A half-open socket never closes by itself; replace it after a silent period.
+      if (Date.now() - lastFrameAt > STALE_MS) socket.close();
+      else ping();
+    }, PING_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') resume();
+    };
+    connect();
+    window.addEventListener('online', resume);
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       closed = true;
       clearTimeout(reconnect);
       clearTimeout(refresh);
+      clearInterval(watchdog);
       socket?.close();
-      window.removeEventListener('online', onOnline);
+      window.removeEventListener('online', resume);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [enabled, client]);
-  return { state, events, approvals, streams };
+  return { state, events, approvals, streams, health, retry: () => retryNow.current() };
 }

@@ -65,6 +65,8 @@ export interface RelayOptions {
   registration?: boolean;
   /** When set (and registration is enabled), sign-up requires this shared invite code. */
   inviteCode?: string;
+  /** Public origin for pairing links when the relay sits behind a proxy; defaults to the request's. */
+  publicOrigin?: string;
   secureCookies?: boolean;
   github?: GitHubOptions;
   heartbeatStaleMs?: number;
@@ -108,6 +110,18 @@ const json = (data: unknown, status = 200, headers: Record<string, string> = {})
   Response.json(data, { status, headers });
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const SEEN_PERSIST_MS = 60_000;
+const KEEPALIVE_MS = 25_000;
+const PAIRING_MS = 10 * 60 * 1000;
+// Crockford base32: no I, L, O or U, so codes survive being read aloud or retyped.
+const PAIRING_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+function pairingCode(): string {
+  const bytes = randomBytes(8);
+  let code = '';
+  for (const byte of bytes) code += PAIRING_ALPHABET[byte & 31];
+  return `${code.slice(0, 4)}-${code.slice(4)}`;
+}
+const normalizePairingCode = (value: string) =>
+  value.toUpperCase().replace(/[^0-9A-Z]/g, '').replace(/[IL]/g, '1').replace(/O/g, '0');
 
 /**
  * Single-writer relay logic shared by the Bun server and the Cloudflare Durable Object.
@@ -125,7 +139,8 @@ export function createRelayCore(
   const heartbeatStaleMs = options.heartbeatStaleMs ?? 30_000;
   const heartbeatDisconnectMs = options.heartbeatDisconnectMs ?? 60_000;
   const eventRetentionMs = options.eventRetentionMs ?? 7 * 24 * 60 * 60 * 1000;
-  let nextPruneAt = 0;
+  let nextPruneAt = 0,
+    nextKeepaliveAt = 0;
   const registrationMode =
     options.registration !== true ? 'closed' : options.inviteCode ? 'invite' : 'open';
   if (heartbeatStaleMs < 100 || heartbeatDisconnectMs <= heartbeatStaleMs)
@@ -366,6 +381,27 @@ export function createRelayCore(
         'This login is bound to a different controller',
       );
   }
+  function limitAttempts(key: string) {
+    const now = Date.now(),
+      limit = attempts.get(key);
+    if (limit && limit.until > now && limit.count >= 20)
+      throw new HttpError(429, 'RATE_LIMITED', 'Too many attempts');
+    attempts.set(key, { count: limit && limit.until > now ? limit.count + 1 : 1, until: now + 60_000 });
+  }
+  /** Issues a new connector credential, disconnecting the old one and fencing out its writer. */
+  function rotateConnectorToken(instanceId: string): string {
+    const raw = token();
+    run('UPDATE instances SET token_hash=? WHERE id=?', digest(raw), instanceId);
+    const socket = connectors.get(instanceId);
+    if (socket) {
+      if (socket.data.role === 'connector') socket.data.ready = false;
+      socket.close(4003, 'Connector credential rotated');
+    }
+    run('UPDATE leases SET epoch=epoch+1,expires_at=0 WHERE instance_id=?', instanceId);
+    const lease = get('SELECT * FROM leases WHERE instance_id=?', instanceId);
+    if (lease) publishLease(lease);
+    return raw;
+  }
   function publishLease(row: Row) {
     const instance = ownedInstance(
       String(row.instance_id),
@@ -467,6 +503,43 @@ export function createRelayCore(
           });
           if (upgraded !== false) return upgraded;
           throw new HttpError(400, 'UPGRADE_REQUIRED', 'WebSocket upgrade required');
+        }
+        if (path === '/api/connector/me') {
+          // Lets a connector distinguish a rejected credential from an unreachable relay.
+          if (req.method !== 'GET') throw new HttpError(405, 'METHOD_NOT_ALLOWED', 'GET required');
+          const header = req.headers.get('authorization');
+          if (!header?.startsWith('Bearer '))
+            throw new HttpError(401, 'UNAUTHENTICATED', 'Connector credential required');
+          const instance = get('SELECT * FROM instances WHERE token_hash=?', digest(header.slice(7)));
+          if (!instance)
+            throw new HttpError(401, 'UNAUTHENTICATED', 'Invalid connector credential');
+          return json({ instance: { id: String(instance.id), name: String(instance.name) } });
+        }
+        if (path === '/api/connector/pair') {
+          if (req.method !== 'POST') throw new HttpError(405, 'METHOD_NOT_ALLOWED', 'POST required');
+          limitAttempts(`pair:${io.ip}`);
+          const input = await body(req),
+            code = normalizePairingCode(string(input.code, 'code', 40));
+          // Single use: the code is consumed together with issuing the credential.
+          const claimed = db.transaction(() => {
+            const row = get(
+              'SELECT * FROM pairing_codes WHERE code_hash=? AND expires_at>?',
+              digest(code),
+              Date.now(),
+            );
+            if (!row) return null;
+            run('DELETE FROM pairing_codes WHERE code_hash=?', digest(code));
+            return row;
+          })();
+          if (!claimed)
+            throw new HttpError(404, 'PAIRING_INVALID', 'Pairing code is invalid or has expired');
+          const instance = get('SELECT * FROM instances WHERE id=?', String(claimed.instance_id))!;
+          const connectorToken = rotateConnectorToken(String(instance.id));
+          emit(String(instance.user_id), String(instance.id), 'instance.paired', { at: Date.now() });
+          return json({
+            instance: { id: String(instance.id), name: String(instance.name) },
+            connectorToken,
+          });
         }
         if (path === '/api/auth/register' || path === '/api/auth/login') {
           if (req.method !== 'POST')
@@ -646,21 +719,27 @@ export function createRelayCore(
           }
           const rotateMatch = path.match(/^\/api\/instances\/([^/]+)\/rotate-credential$/);
           if (rotateMatch && req.method === 'POST') {
-            const instance = ownedInstance(rotateMatch[1]!, auth.userId),
-              raw = token();
-            run('UPDATE instances SET token_hash=? WHERE id=?', digest(raw), String(instance.id));
-            const socket = connectors.get(String(instance.id));
-            if (socket) {
-              if (socket.data.role === 'connector') socket.data.ready = false;
-              socket.close(4003, 'Connector credential rotated');
-            }
-            run(
-              'UPDATE leases SET epoch=epoch+1,expires_at=0 WHERE instance_id=?',
-              String(instance.id),
-            );
-            const lease = get('SELECT * FROM leases WHERE instance_id=?', String(instance.id));
-            if (lease) publishLease(lease);
-            return json({ connectorToken: raw });
+            const instance = ownedInstance(rotateMatch[1]!, auth.userId);
+            return json({ connectorToken: rotateConnectorToken(String(instance.id)) });
+          }
+          const pairingMatch = path.match(/^\/api\/instances\/([^/]+)\/pairing$/);
+          if (pairingMatch && req.method === 'POST') {
+            const instance = ownedInstance(pairingMatch[1]!, auth.userId),
+              code = pairingCode(),
+              expiresAt = Date.now() + PAIRING_MS,
+              origin = (options.publicOrigin ?? req.headers.get('origin') ?? url.origin).replace(/\/$/, '');
+            // Only the newest code for an instance is valid.
+            db.transaction(() => {
+              run('DELETE FROM pairing_codes WHERE instance_id=?', String(instance.id));
+              run(
+                'INSERT INTO pairing_codes(code_hash,instance_id,user_id,expires_at) VALUES(?,?,?,?)',
+                digest(normalizePairingCode(code)),
+                String(instance.id),
+                auth.userId,
+                expiresAt,
+              );
+            })();
+            return json({ code, expiresAt, pairingUrl: `${origin}/pair/${code}` }, 201);
           }
           const commandMatch = path.match(/^\/api\/commands\/([^/]+)$/);
           if (commandMatch && req.method === 'GET') {
@@ -961,6 +1040,13 @@ export function createRelayCore(
   function message(ws: Socket, message: string | ArrayBuffer | Uint8Array) {
         try {
           if (ws.data.role !== 'connector') {
+            // Viewers may only measure round-trip time; anything else is a protocol violation.
+            const text = typeof message === 'string' ? message : new TextDecoder().decode(message);
+            const frame: unknown = text.length <= 256 ? JSON.parse(text) : null;
+            if (object(frame) && frame.type === 'ping' && Number.isSafeInteger(frame.id)) {
+              ws.send(JSON.stringify({ v: 1, type: 'pong', id: frame.id }));
+              return;
+            }
             ws.close(1008, 'Viewer sockets are receive-only');
             return;
           }
@@ -1249,6 +1335,11 @@ export function createRelayCore(
     }
     for (const ws of viewers)
       if (ws.data.role === 'viewer' && ws.data.expiresAt <= now) ws.close(4003, 'Session expired');
+    // Application-level keepalive: lets clients detect half-open sockets on every runtime.
+    if (now >= nextKeepaliveAt) {
+      nextKeepaliveAt = now + KEEPALIVE_MS;
+      for (const ws of viewers) ws.send('{"v":1,"type":"keepalive"}');
+    }
     for (const row of all(
       "SELECT * FROM commands WHERE status='dispatched' AND created_at<?",
       now - commandMs,
@@ -1275,6 +1366,7 @@ export function createRelayCore(
     if (now >= nextPruneAt) {
       nextPruneAt = now + 24 * 60 * 60 * 1000;
       run('DELETE FROM events WHERE created_at<?', now - eventRetentionMs);
+      run('DELETE FROM pairing_codes WHERE expires_at<?', now);
     }
   }
   return {

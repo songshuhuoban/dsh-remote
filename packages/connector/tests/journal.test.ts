@@ -22,6 +22,8 @@ const command: RelayCommand = {
 };
 const owned: string[] = [];
 afterAll(() => {
+  // node:sqlite finalizes statements on GC; Windows keeps the files locked until then.
+  Bun.gc(true);
   for (const dir of owned) rmSync(dir, { recursive: true, force: true });
 });
 function filename() {

@@ -11,6 +11,7 @@ const relay = createRelay({
     process.env.REGISTRATION === "enabled" ||
     (process.env.REGISTRATION === "invite" && !!process.env.REGISTRATION_INVITE_CODE),
   inviteCode: process.env.REGISTRATION_INVITE_CODE || undefined,
+  publicOrigin: process.env.PUBLIC_ORIGIN || undefined,
   secureCookies: process.env.SECURE_COOKIES === "true",
 });
 console.log(`DSH Remote relay listening on ${relay.server.url}`);

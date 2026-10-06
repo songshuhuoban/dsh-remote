@@ -1,26 +1,45 @@
-# DSH plugin and Bun connector
+# DSH Remote plugin
 
 Pinned Host: DeepSeek Harness `0.2.1-alpha.1`, upstream commit `5badb15009ae1756c3afe0ae0cef1faafc290ccc`.
 
-This package is a real Cordis plugin. Its small Host entry runs inside DSH's supported Node runtime and owns a Bun subprocess over private JSONL stdin/stdout. The Bun process makes the outbound authenticated WebSocket connection; no additional local HTTP listener is opened. DSH itself is not claimed to run on Bun. Controlled-instance hosts currently require POSIX credential-file protection (tested on Linux); Windows Host activation fails closed until a verified Windows credential/ACL adapter is implemented. This restriction concerns the controlled DSH Host, not the Flutter client's target platforms.
+A Cordis plugin that connects a DSH computer to a DSH Remote relay, so the web console and the mobile app can watch and control its sessions. Everything is managed from DSH's **Plugins** page; no terminal, environment variables or credential files are needed.
 
-## Build and load
+## Install and pair
 
-From this repository, run `bun install`, then `bun run --cwd packages/dsh-plugin build`. Configure an absolute overlay with the built `packages/dsh-plugin/dist/index.js` as the plugin `name`, or install a built package through `dsh plugin --profile web add /absolute/path/to/packages/dsh-plugin`. The manifest declares a DSH bundle. Restart DSH after adding it.
+1. In DSH, open **Plugins → Add plugin** and paste the release tarball URL, for example `https://github.com/songshuhuoban/dsh-remote/releases/download/dsh-plugin-v0.2.0/dsh-remote-plugin-0.2.0.tgz`. Enable it. (DSH `0.2.1-alpha.1` may fail to reload a newly enabled plugin live on Windows; restart DSH once if its page does not appear.)
+2. In the relay console, choose **连接新实例** (or **配对** on an offline instance) and copy the pairing link. It works once and expires after 10 minutes.
+3. On the plugin's page in DSH, paste the link and choose **配对**. The status turns to **已连接**.
+4. Add the workspace folders remote devices may use. Sessions outside them are invisible and cannot be created remotely.
 
-The plugin's config requires:
+Pairing, unpairing and folder changes are accepted only from a browser on the DSH computer itself; remote browsers see the page read-only.
 
-- `relayUrl`: `wss://your-relay/ws/connector`; plain `ws://` is accepted only for loopback testing
-- `connectorTokenFile`: absolute owner-only credential file for this exact relay instance, inside a private directory (0600 file / 0700 directory on POSIX); store the token without a trailing newline
-- `connectorPath`: absolute path to `packages/connector/src/index.ts`
-- `journalPath`: absolute private SQLite path for this instance only
-- `bunPath`: executable path, or `bun` on the DSH process's PATH
-- `allowedWorkspaceRoots`: explicit absolute workspace directories; symlinks are canonicalized
-- Optional `allowedPermissionPresets`: default `workspace-write`, `read-only`
-- Optional `allowedAgentPresets`: default empty; current-session preset writes are disabled until explicitly configured
-- Optional `approvalTimeoutMs`: default 600000
+## How it runs
 
-The bundled overlay reads `DSH_REMOTE_RELAY_URL`, `DSH_REMOTE_CONNECTOR_TOKEN_FILE`, `DSH_REMOTE_CONNECTOR_PATH`, `DSH_REMOTE_JOURNAL_PATH`, `DSH_REMOTE_BUN_PATH`, and `DSH_REMOTE_ALLOWED_ROOTS` (a JSON array). Inline credentials are refused so DSH configuration introspection cannot reveal them. The credential is loaded inside the Host shim and sent only over private child stdin and the authenticated relay connection. Ambient model keys are scrubbed from the child environment. Do not commit configuration containing real credentials.
+- **Credential.** Pairing exchanges the one-time code for this computer's connector token and stores it, with the relay address and instance, as a record in DSH's credential store (`$DSH_HOME/.credentials.yaml`, owner-only). It never enters profile YAML or the browser. Pairing again replaces it; the relay revokes the previous token.
+- **Policy.** Workspace folders and the permission/agent preset allowlists live in `$DSH_HOME/dsh-remote/settings.json` and apply to the next permission check without a reconnect.
+- **Connector.** A bundled connector (`dist/connector.js`) runs as a private child process of DSH's own runtime (Node, or Electron in Node mode on desktop), with secrets and `DSH_*` variables removed from its environment. It opens no listener, keeps a per-instance SQLite journal in `$DSH_HOME/dsh-remote/`, and honours `HTTPS_PROXY`.
+- **Status.** The page shows connecting, connected, credential rejected (pair again) or relay unreachable, and offers reconnect and unpair.
+
+## Headless and development setups
+
+A profile may instead configure the row directly, which locks the corresponding fields on the page:
+
+- `relayUrl` + `connectorTokenFile`: manual connection with a token saved in an owner-only file inside a private directory (POSIX 0600/0700; not supported on Windows). Inline tokens are refused.
+- `allowedWorkspaceRoots`, `allowedPermissionPresets`, `allowedAgentPresets`: non-empty lists override the page.
+- `journalPath`, `approvalTimeoutMs` (default 600000).
+- `connectorPath` + `bunPath`: development only; run the connector source with Bun instead of the bundled build.
+
+`cordis.patch.yml` inserts the row with no configuration. The repository test runners add rows like this through `--patch` overlays.
+
+## Build
+
+```sh
+bun install --frozen-lockfile
+bun run --cwd packages/dsh-plugin build   # dist/index.js, dist/connector.js, dist/client.js
+cd packages/dsh-plugin && npm pack        # installable tarball
+```
+
+`@deepseek-ai/cordis` and `@deepseek-ai/schemastery` are peer dependencies resolved to DSH's own copies. The browser half (`dist/client.js`) is a single script in DSH's client-module format; it relies only on `react` from the page. Tagging `dsh-plugin-v<version>` publishes the tarball as a GitHub release (`.github/workflows/release-plugin.yml`).
 
 ## Behavior limits
 

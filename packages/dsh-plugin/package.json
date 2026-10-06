@@ -1,1 +1,38 @@
-{"name":"@dsh-remote/plugin","version":"0.1.0","type":"module","main":"dist/index.js","files":["dist","cordis.patch.yml"],"dsh":{"bundle":{"patch":"./cordis.patch.yml"}},"scripts":{"build":"bun build src/index.ts --target=node --format=esm --outfile=dist/index.js"},"peerDependencies":{"@deepseek-ai/cordis":"*"}}
+{
+  "name": "@dsh-remote/plugin",
+  "version": "0.2.0",
+  "description": "Control this DSH computer from the DSH Remote web console and mobile app.",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./client": "./dist/client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml",
+    "locale/*.json"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "typecheck:client": "tsc -p tsconfig.client.json"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/schemastery": "3.18.4",
+    "@types/react": "18"
+  }
+}

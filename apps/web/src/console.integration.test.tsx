@@ -68,21 +68,25 @@ afterAll(() => {
 });
 it('registers through React, creates an offline instance, safely disables writes, closes a modal, and logs out', async () => {
   const email = `dom-e2e-${Date.now()}@example.test`;
-  expect(await screen.findByRole('heading', { name: '欢迎回来' })).toBeTruthy();
+  const live = () =>
+    waitFor(() => expect(document.querySelector('[data-stream="live"]')).not.toBeNull());
+  const openSettings = () => fireEvent.click(screen.getByRole('button', { name: '账户与设置' }));
+  expect(await screen.findByRole('heading', { name: '登录' })).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: '创建账户' }));
+  expect(await screen.findByRole('heading', { name: '创建账户' })).toBeTruthy();
   fireEvent.change(screen.getByLabelText('邮箱', {}), {
     target: { value: email },
   });
   fireEvent.change(screen.getByLabelText('密码', {}), {
     target: { value: 'Synthetic-DOM-Only-2026!' },
   });
-  fireEvent.change(screen.getByLabelText('当前设备名称'), { target: { value: 'DOM 测试设备' } });
+  fireEvent.change(screen.getByLabelText('设备名称'), { target: { value: 'DOM 测试设备' } });
   fireEvent.click(screen.getByRole('button', { name: '创建账户' }));
   expect(await screen.findByRole('heading', { name: '连接你的第一台 DSH' })).toBeTruthy();
-  expect(await screen.findByText('实时同步', {})).toBeTruthy();
+  await live();
   expect(Object.keys(localStorage)).toEqual([]);
   expect(Object.keys(sessionStorage)).toEqual(['dsh.controller']);
-  const create = screen.getAllByRole('button', { name: '连接新实例' }).at(-1)!;
+  const create = screen.getByRole('button', { name: '连接新实例' });
   fireEvent.click(create);
   fireEvent.change(screen.getByLabelText('实例名称'), { target: { value: 'Cancelled instance' } });
   fireEvent.click(screen.getByRole('button', { name: '取消' }));
@@ -90,12 +94,15 @@ it('registers through React, creates an offline instance, safely disables writes
   fireEvent.click(create);
   fireEvent.change(screen.getByLabelText('实例名称'), { target: { value: 'DOM real relay' } });
   fireEvent.click(screen.getByRole('button', { name: '创建实例' }));
-  expect(await screen.findByRole('heading', { name: '实例已创建' })).toBeTruthy();
+  expect(await screen.findByRole('heading', { name: '连接 DOM real relay' })).toBeTruthy();
+  expect(
+    ((await screen.findByLabelText('配对链接')) as HTMLInputElement).value,
+  ).toMatch(/\/pair\/[0-9A-Z]{4}-[0-9A-Z]{4}$/);
   expect(
     (screen.getByLabelText('Connector 令牌') as HTMLTextAreaElement).value.length,
   ).toBeGreaterThan(20);
-  fireEvent.click(screen.getByRole('button', { name: '我已保存，进入实例' }));
-  expect(await screen.findByRole('heading', { name: /DOM real relay/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '进入实例' }));
+  expect(await screen.findByRole('heading', { name: 'DOM real relay' })).toBeTruthy();
   expect((screen.getByRole('button', { name: '获取控制权' }) as HTMLButtonElement).disabled).toBe(
     true,
   );
@@ -129,35 +136,40 @@ it('registers through React, creates an offline instance, safely disables writes
     expect((screen.getByLabelText('供消息引用') as HTMLInputElement).checked).toBe(false),
   );
   fireEvent.click(screen.getByRole('button', { name: '返回会话' }));
-  fireEvent.click(screen.getByRole('button', { name: '实例状态' }));
-  expect(screen.getByText(/最近心跳：尚未观测到/)).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: /^返回$/ }));
-  fireEvent.click(screen.getByRole('button', { name: '实例连接凭据' }));
+  fireEvent.click(screen.getByRole('button', { name: /实例状态/ }));
+  const status = within(screen.getByRole('dialog'));
+  expect(status.getByText('最近心跳')).toBeTruthy();
+  expect(status.getAllByText('尚未观测到').length).toBeGreaterThan(0);
+  fireEvent.click(status.getByRole('button', { name: '更换令牌' }));
   fireEvent.click(screen.getByRole('button', { name: '取消' }));
   expect(screen.queryByRole('dialog')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: '实例连接凭据' }));
-  fireEvent.click(screen.getByRole('button', { name: '确认更换' }));
+  fireEvent.click(screen.getByRole('button', { name: /实例状态/ }));
+  fireEvent.click(screen.getByRole('button', { name: '更换令牌' }));
+  fireEvent.click(screen.getByRole('button', { name: '更换' }));
   expect(await screen.findByRole('heading', { name: '新的连接令牌' })).toBeTruthy();
   expect(
     (screen.getByLabelText('Connector 令牌') as HTMLTextAreaElement).value.length,
   ).toBeGreaterThan(20);
-  fireEvent.click(screen.getByRole('button', { name: '我已保存' }));
-  fireEvent.click(screen.getByRole('button', { name: /控制设备/ }));
+  fireEvent.click(screen.getByRole('button', { name: '完成' }));
+  openSettings();
+  fireEvent.click(screen.getByRole('button', { name: '控制设备' }));
   expect(within(screen.getByRole('dialog')).getByText('DOM 测试设备')).toBeTruthy();
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '关闭' }));
+  openSettings();
   fireEvent.click(screen.getByRole('button', { name: '退出登录' }));
-  expect(await screen.findByRole('heading', { name: '欢迎回来' })).toBeTruthy();
+  expect(await screen.findByRole('heading', { name: '登录' })).toBeTruthy();
   await waitFor(() => expect(sessionStorage.getItem('dsh.controller')).toBeNull());
   fireEvent.change(screen.getByLabelText('邮箱'), { target: { value: email } });
   fireEvent.change(screen.getByLabelText('密码'), {
     target: { value: 'Synthetic-DOM-Only-2026!' },
   });
-  fireEvent.change(screen.getByLabelText('当前设备名称'), { target: { value: '待撤销设备' } });
-  fireEvent.click(screen.getByRole('button', { name: '登录控制台' }));
-  expect(await screen.findByRole('heading', { name: /DOM real relay/ })).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: /控制设备/ }));
-  fireEvent.click(await screen.findByRole('button', { name: '撤销登录' }));
-  expect(screen.getByText(/这是当前设备，确认后你将退出登录/)).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: '确认撤销' }));
-  expect(await screen.findByRole('heading', { name: '欢迎回来' })).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('设备名称'), { target: { value: '待撤销设备' } });
+  fireEvent.click(screen.getByRole('button', { name: '登录' }));
+  expect(await screen.findByRole('heading', { name: 'DOM real relay' })).toBeTruthy();
+  openSettings();
+  fireEvent.click(screen.getByRole('button', { name: '控制设备' }));
+  fireEvent.click(await screen.findByRole('button', { name: '撤销' }));
+  expect(screen.getByText(/这是当前设备/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '撤销' }));
+  expect(await screen.findByRole('heading', { name: '登录' })).toBeTruthy();
 });

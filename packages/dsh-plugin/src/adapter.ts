@@ -33,11 +33,12 @@ export const CAPABILITIES = [
   'settings.update',
   'capabilities',
 ];
+/** Read on every check, so live configuration edits apply without restarting the adapter. */
 export interface AdapterPolicy {
-  allowedWorkspaceRoots: string[];
-  allowedPermissionPresets?: string[];
-  allowedAgentPresets?: string[];
-  approvalTimeoutMs?: number;
+  readonly allowedWorkspaceRoots: readonly string[];
+  readonly allowedPermissionPresets?: readonly string[];
+  readonly allowedAgentPresets?: readonly string[];
+  readonly approvalTimeoutMs?: number;
 }
 export interface HostEvent {
   id: string;
@@ -88,18 +89,13 @@ export class DshAdapter {
   private readonly disposers: Array<() => void> = [];
   private available = false;
   private closed = false;
+  private rootCache: { key: string; roots: string[] } | undefined;
   readonly bootId = randomUUID();
   constructor(
     private readonly ctx: DshHostContext,
     private readonly emit: (event: HostEvent) => void,
     private readonly policy: AdapterPolicy,
   ) {
-    if (!policy.allowedWorkspaceRoots.length)
-      throw new AdapterError('configuration', 'At least one allowed workspace root is required');
-    this.policy = {
-      ...policy,
-      allowedWorkspaceRoots: policy.allowedWorkspaceRoots.map((root) => realpathSync(root)),
-    };
     this.disposers.push(
       ctx.on(
         'session/event',
@@ -178,11 +174,27 @@ export class DshAdapter {
       ),
     );
   }
+  /** Canonical existing roots. A missing or relative root grants nothing. */
+  roots(): string[] {
+    const raw = this.policy.allowedWorkspaceRoots,
+      key = JSON.stringify(raw);
+    if (this.rootCache?.key !== key) {
+      const roots: string[] = [];
+      for (const root of raw)
+        try {
+          if (isAbsolute(root)) roots.push(realpathSync(root));
+        } catch {
+          // Not present on this host.
+        }
+      this.rootCache = { key, roots };
+    }
+    return this.rootCache.roots;
+  }
   private permitted(cwd: unknown): boolean {
     if (typeof cwd !== 'string') return false;
     try {
       const target = realpathSync(cwd);
-      return this.policy.allowedWorkspaceRoots.some((root) => {
+      return this.roots().some((root) => {
         const tail = relative(root, target);
         return (
           tail === '' ||
@@ -372,7 +384,7 @@ export class DshAdapter {
         const result = await inspectRepository(
           text(args, 'path'),
           text(args, 'expectedRemoteUrl'),
-          this.policy.allowedWorkspaceRoots,
+          this.roots(),
         );
         guard();
         return result;
@@ -428,7 +440,7 @@ export class DshAdapter {
             'unsupported',
             'Use an explicitly allowed cwd for remote session creation',
           );
-        const cwd = args.cwd ?? this.policy.allowedWorkspaceRoots[0];
+        const cwd = args.cwd ?? this.roots()[0];
         if (!this.permitted(cwd))
           throw new AdapterError(
             'workspace_forbidden',
@@ -467,7 +479,7 @@ export class DshAdapter {
         if (repositoryContext !== undefined) {
           const context = await repositoryPromptContext(
             repositoryContext as RepositoryContext[],
-            this.policy.allowedWorkspaceRoots,
+            this.roots(),
           );
           const content = (args.content as Array<Record<string, unknown>>).map((part) => ({
             ...part,

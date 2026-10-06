@@ -1,4 +1,4 @@
-/** Bun transport subprocess. Private JSONL stdio to the trusted DSH Host shim. */
+/** Transport subprocess (Node or Bun). Private JSONL stdio to the trusted DSH Host shim. */
 import { createInterface } from 'node:readline';
 import { Journal } from './journal.ts';
 import {
@@ -22,13 +22,22 @@ let stopped = false,
   retry: ReturnType<typeof setTimeout> | undefined,
   attempt = 0,
   connectionEpoch = 0,
-  instanceId = '';
+  instanceId = '',
+  lastRelayFrameAt = 0;
+/** No relay frame for this long while welcomed means a half-open socket (sleep, NAT, proxy). */
+const SILENT_MS = 45_000;
+const CONNECT_TIMEOUT_MS = 15_000;
 let lease: { epoch: number; expiresAt: number; controllerId: string | null } | null = null;
 const pending = new Set<string>();
 let heartbeatNonce = 0;
 const heartbeatTimer = setInterval(() => {
-  if (welcomed && !stopped)
-    output({ type: 'heartbeat', connectionEpoch, nonce: ++heartbeatNonce });
+  if (!welcomed || stopped) return;
+  if (Date.now() - lastRelayFrameAt > SILENT_MS) {
+    diagnostic('relay went silent; reconnecting');
+    socket?.close(4000, 'relay silent');
+    return;
+  }
+  output({ type: 'heartbeat', connectionEpoch, nonce: ++heartbeatNonce });
 }, 10_000);
 heartbeatTimer.unref();
 function output(value: unknown): void {
@@ -63,21 +72,52 @@ function checkUrl(raw: string): void {
   if (url.protocol === 'ws:' && !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))
     throw new Error('Non-loopback relay requires wss://');
 }
+/** After a failed attempt, tell the Host why: a rejected credential is not worth fast retries. */
+async function diagnose(): Promise<{ state: string; detail: string; delay?: number }> {
+  const url = new URL(config!.relayUrl);
+  url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+  url.pathname = '/api/connector/me';
+  try {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${config!.connectorToken}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (response.status === 401)
+      return {
+        state: 'credential_rejected',
+        detail: 'The relay rejected this credential; pair again from the relay console',
+        delay: 60_000,
+      };
+    return { state: 'offline', detail: `Relay answered HTTP ${response.status}; reconnecting` };
+  } catch {
+    return { state: 'unreachable', detail: `Cannot reach ${url.host}; reconnecting` };
+  }
+}
 function connect(): void {
   if (stopped || !config) return;
-  const BunClientWebSocket = globalThis.WebSocket as typeof WebSocket & {
-    new (url: string, options: Bun.WebSocketOptions): WebSocket;
-  };
-  const current = new BunClientWebSocket(config.relayUrl, {
+  output({ type: 'status', state: 'connecting' });
+  // Node (undici) and Bun both accept request headers in the WebSocket options.
+  const HeaderWebSocket = globalThis.WebSocket as unknown as new (
+    url: string,
+    options: { headers: Record<string, string> },
+  ) => WebSocket;
+  const current = new HeaderWebSocket(config.relayUrl, {
     headers: { Authorization: `Bearer ${config.connectorToken}` },
   });
   socket = current;
+  // A handshake that never completes (unreachable host, captive network) must not stall retries.
+  const handshake = setTimeout(() => {
+    if (current === socket && current.readyState !== WebSocket.OPEN) current.close();
+  }, CONNECT_TIMEOUT_MS);
   current.addEventListener('open', () => {
+    clearTimeout(handshake);
     if (current !== socket) return;
+    lastRelayFrameAt = Date.now();
     send({ v: 1, type: 'hello', bootId: config!.bootId, capabilities: config!.capabilities });
   });
   current.addEventListener('message', (event) => {
     if (current !== socket) return;
+    lastRelayFrameAt = Date.now();
     try {
       const raw = typeof event.data === 'string' ? event.data : '';
       if (Buffer.byteLength(raw) > MAX_FRAME_BYTES) throw new Error('Relay frame too large');
@@ -180,14 +220,28 @@ function connect(): void {
   });
   current.addEventListener('error', () => {});
   current.addEventListener('close', () => {
+    clearTimeout(handshake);
     if (current !== socket) return;
+    const wasWelcomed = welcomed;
     welcomed = false;
     lease = null;
     output({ type: 'connection', online: false, connectionEpoch });
-    if (!stopped) {
-      const delay = Math.min(15000, 250 * 2 ** Math.min(attempt++, 6));
-      retry = setTimeout(connect, delay + Math.floor(Math.random() * 250));
+    if (stopped) return;
+    // Exponential backoff with jitter, capped at 15 s; the Host can skip the wait with "retry".
+    const backoff = Math.min(15000, 250 * 2 ** Math.min(attempt++, 6));
+    const schedule = (state: string, detail: string, base: number) => {
+      const delay = base + Math.floor(Math.random() * 250);
+      output({ type: 'status', state, detail, nextRetryAt: Date.now() + delay, attempt });
+      retry = setTimeout(connect, delay);
+    };
+    if (wasWelcomed) {
+      schedule('offline', 'Relay connection closed; reconnecting', backoff);
+      return;
     }
+    void diagnose().then((found) => {
+      if (stopped || current !== socket) return;
+      schedule(found.state, found.detail, found.delay ?? backoff);
+    });
   });
 }
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -224,6 +278,15 @@ input.on('line', (line) => {
       const event = { v: 1, type: 'event', ...frame.event } as ConnectorEvent;
       journal?.event(event);
       if (welcomed) send(event);
+    } else if (frame.type === 'retry') {
+      // Skip the backoff wait, e.g. when the user asks to reconnect now.
+      if (stopped || welcomed || !config) return;
+      if (retry) clearTimeout(retry);
+      attempt = 0;
+      const previous = socket;
+      socket = undefined;
+      previous?.close();
+      connect();
     } else if (frame.type === 'shutdown') {
       shutdown();
     }

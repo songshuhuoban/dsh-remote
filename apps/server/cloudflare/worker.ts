@@ -29,7 +29,6 @@ export interface Env {
 }
 
 const RELAY_PATHS = /^\/(?:health$|api\/|ws\/|github\/)/;
-const KEEPALIVE_MS = 30_000;
 
 /** Durable Object SQLite behind the relay's synchronous database interface. */
 function durableDatabase(storage: DurableObjectStorage): SqlDatabase {
@@ -58,7 +57,6 @@ function durableDatabase(storage: DurableObjectStorage): SqlDatabase {
  */
 export class RelayObject extends DurableObject<Env> {
   private readonly core: RelayCore;
-  private readonly viewers = new Set<RelaySocket>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -86,11 +84,8 @@ export class RelayObject extends DurableObject<Env> {
       },
       { passwords: pbkdf2Passwords },
     );
+    // The core's sweep also sends viewer keepalives, which Cloudflare needs: it has no server pings.
     setInterval(() => this.core.sweep(), this.core.sweepIntervalMs);
-    // Cloudflare sends no server pings; idle browser/app streams would otherwise be cut.
-    setInterval(() => {
-      for (const viewer of this.viewers) viewer.send('{"v":1,"type":"keepalive"}');
-    }, KEEPALIVE_MS);
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -130,7 +125,6 @@ export class RelayObject extends DurableObject<Env> {
     const finish = () => {
       if (closed) return;
       closed = true;
-      this.viewers.delete(relay);
       setTimeout(() => this.core.close(relay), 0);
     };
     server.addEventListener('message', (event) => {
@@ -142,7 +136,6 @@ export class RelayObject extends DurableObject<Env> {
     });
     server.addEventListener('close', (event) => relay.close(event.code === 1005 ? 1000 : event.code, event.reason));
     server.addEventListener('error', () => finish());
-    if (data.role === 'viewer') this.viewers.add(relay);
     this.core.open(relay);
     return new Response(null, { status: 101, webSocket: client });
   }

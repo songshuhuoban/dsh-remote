@@ -4,8 +4,8 @@ All non-public routes require a session cookie or `Authorization: Bearer …`. N
 
 ## HTTP
 
-- `GET /health`: readiness and protocol version
-- `POST /api/auth/register`: `{email,password,deviceName}`; requires explicit operator registration enablement
+- `GET /health`: readiness, protocol version and `registration` (`open`, `invite` or `closed`)
+- `POST /api/auth/register`: `{email,password,deviceName,inviteCode?}`; requires explicit operator registration enablement, and the invite code in invite mode. Passwords need at least 8 characters
 - `POST /api/auth/login`: same fields; returns `{user,controller}` and an HttpOnly cookie; originless native callers also receive `token`
 - `POST /api/auth/logout`: revokes the login/controller session, event sockets and owned writer lease
 - `GET /api/me`: `{user:{id,email},controller:{id,name,createdAt}}`
@@ -14,6 +14,9 @@ All non-public routes require a session cookie or `Authorization: Bearer …`. N
 - `GET /api/instances`: `{instances:[{id,name,online,bootId,connectionEpoch,lease,capabilities,createdAt}]}`
 - `POST /api/instances`: `{name}` → `{instance,connectorToken}`. Raw token is displayed only in this response
 - `POST /api/instances/:id/rotate-credential`: replaces the old connector credential, disconnects it and invalidates writer control; returns `{connectorToken}` once
+- `POST /api/instances/:id/pairing`: issues a single-use pairing code valid for 10 minutes (only the newest code per instance is valid) → `{code,expiresAt,pairingUrl}`
+- `POST /api/connector/pair` (no session; rate limited): `{code}` → `{instance:{id,name},connectorToken}`. Consumes the code and rotates the instance credential, like `rotate-credential`
+- `GET /api/connector/me` (connector bearer): `{instance:{id,name}}`, or 401 when the credential was rotated or revoked
 - `GET /api/instances/:id/state`: authoritative `{instance,pendingApprovals}` after reconnect/reset
 - `POST /api/instances/:id/lease`: `{controllerId,takeover?:true}` → `{controllerId,epoch,expiresAt,pending:false}` after host fence acknowledgement. Offline instances return 409. A withheld first-acquisition/takeover ACK returns `FENCE_PENDING`; writes remain blocked. Same-epoch renewal keeps the previous acknowledged authority until its old expiry, and command deadlines cannot use the extension until the Host acknowledges it
 - `DELETE /api/instances/:id/lease`: `{controllerId}`; only the current controller can release

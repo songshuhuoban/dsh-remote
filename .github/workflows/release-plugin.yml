@@ -1,0 +1,50 @@
+name: Release DSH plugin
+# Push a tag such as dsh-plugin-v0.2.0 (matching packages/dsh-plugin/package.json) to publish.
+on:
+  push:
+    tags: ['dsh-plugin-v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # Optional: publishing to npm also requires owning the @dsh-remote scope.
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - run: bun install --frozen-lockfile
+      - run: bun run test:plugin
+      - run: bun run build:plugin
+      - name: Check the tag matches the package version
+        id: version
+        run: |
+          version=$(node -p "require('./packages/dsh-plugin/package.json').version")
+          test "${GITHUB_REF_NAME#dsh-plugin-v}" = "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Pack
+        working-directory: packages/dsh-plugin
+        run: npm pack --pack-destination "$RUNNER_TEMP/release"
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          asset="dsh-remote-plugin-${VERSION}.tgz"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${asset}"
+          gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP/release/$asset" \
+            --title "DSH Remote plugin ${VERSION}" \
+            --notes "Install in DSH: Plugins → Add plugin → paste ${url}"
+      - name: Publish to npm
+        if: env.NPM_TOKEN != ''
+        working-directory: packages/dsh-plugin
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$HOME/.npmrc"
+          npm publish --access public

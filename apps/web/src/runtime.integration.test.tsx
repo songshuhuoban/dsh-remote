@@ -66,26 +66,26 @@ afterAll(() => {
   vi.unstubAllGlobals();
 });
 it('actual DSH: login, explicit takeover, create session, prompt, durable response, model config, and bound approval', async () => {
-  expect(await screen.findByRole('heading', { name: '欢迎回来' })).toBeTruthy();
+  expect(await screen.findByRole('heading', { name: '登录' })).toBeTruthy();
   fireEvent.change(screen.getByLabelText('邮箱', {}), {
     target: { value: 'real-runtime@example.invalid' },
   });
   fireEvent.change(screen.getByLabelText('密码', {}), {
     target: { value: 'local-fixture-password-only' },
   });
-  fireEvent.change(screen.getByLabelText('当前设备名称'), {
+  fireEvent.change(screen.getByLabelText('设备名称'), {
     target: { value: 'DOM real DSH controller' },
   });
-  fireEvent.click(screen.getByRole('button', { name: '登录控制台' }));
+  fireEvent.click(screen.getByRole('button', { name: '登录' }));
   expect(await screen.findByRole('heading', { name: /Actual upstream source/ })).toBeTruthy();
-  expect(await screen.findByText('实时同步', {})).toBeTruthy();
+  await waitFor(() => expect(document.querySelector('[data-stream="live"]')).not.toBeNull());
   fireEvent.click(await screen.findByRole('button', { name: '接管' }));
   expect(screen.getByRole('dialog')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: '保持只读' }));
+  fireEvent.click(screen.getByRole('button', { name: '取消' }));
   expect(screen.queryByRole('dialog')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: '接管' }));
-  fireEvent.click(screen.getByRole('button', { name: '确认接管' }));
-  expect(await screen.findByText('你拥有控制权', {})).toBeTruthy();
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '接管' }));
+  expect(await screen.findByRole('button', { name: /控制中/ })).toBeTruthy();
   const newButtons = screen.getAllByRole('button', { name: /新建会话/ });
   fireEvent.click(newButtons.at(-1)!);
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '创建会话' }));
@@ -193,8 +193,8 @@ it('actual DSH: login, explicit takeover, create session, prompt, durable respon
   await waitFor(() => expect(screen.queryByText('等待你的审批', {})).toBeNull(), {
     timeout: 10000,
   });
-  fireEvent.click(screen.getByRole('button', { name: '释放' }));
-  expect(await screen.findByText('可获取控制权', {})).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /控制中，点击释放/ }));
+  expect(await screen.findByRole('button', { name: '获取控制权' })).toBeTruthy();
   expect((screen.getByRole('button', { name: '发送消息' }) as HTMLButtonElement).disabled).toBe(
     true,
   );

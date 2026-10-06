@@ -15,6 +15,7 @@ export function initializeSchema(db: SqlDatabase): void {
     CREATE TABLE IF NOT EXISTS settled_approvals(instance_id TEXT NOT NULL REFERENCES instances(id),approval_id TEXT NOT NULL,PRIMARY KEY(instance_id,approval_id));
     CREATE TABLE IF NOT EXISTS pending_approvals(instance_id TEXT NOT NULL REFERENCES instances(id),approval_id TEXT NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(instance_id,approval_id));
     CREATE INDEX IF NOT EXISTS event_user_seq ON events(user_id,seq);
+    CREATE TABLE IF NOT EXISTS pairing_codes(code_hash TEXT PRIMARY KEY,instance_id TEXT NOT NULL REFERENCES instances(id),user_id TEXT NOT NULL REFERENCES users(id),expires_at INTEGER NOT NULL);
     DROP INDEX IF EXISTS event_created;
   `);
   // Additive migrations. PRAGMA introspection is not available on every runtime.

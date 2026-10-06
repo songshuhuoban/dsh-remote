@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
@@ -224,6 +225,7 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
   int _generation = 0;
   int _after = 0;
   int _retries = 0;
+  final _jitter = Random();
   WebSocket? _socket;
   Timer? _reconnect;
   Timer? _maintenance;
@@ -957,8 +959,20 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
     _notify();
     if (!_foreground || !signedIn) return;
     _reconnect?.cancel();
-    final seconds = 1 << (_retries++).clamp(0, 5);
-    _reconnect = Timer(Duration(seconds: seconds), () => unawaited(_connect()));
+    // Exponential backoff (1–32 s) with jitter so a relay restart is not met by every client at once.
+    final delay = Duration(
+      milliseconds:
+          1000 * (1 << (_retries++).clamp(0, 5)) + _jitter.nextInt(400),
+    );
+    _reconnect = Timer(delay, () => unawaited(_connect()));
+  }
+
+  /// Skips the backoff wait, e.g. when the user refreshes while reconnecting.
+  void retryNow() {
+    if (_socket != null || _connecting || !_foreground || !signedIn) return;
+    _reconnect?.cancel();
+    _retries = 0;
+    unawaited(_connect());
   }
 
   @override

@@ -3,13 +3,15 @@ import 'dart:convert';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import 'src/models.dart';
 import 'src/credentials.dart';
 import 'src/store.dart';
 import 'src/theme.dart';
+import 'src/ui.dart';
 import 'src/repositories_page.dart';
+
+export 'src/ui.dart' show ErrorNotice;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -65,6 +67,8 @@ class _DshRemoteAppState extends State<DshRemoteApp> {
   );
 }
 
+/// Sign in and create account are one form: the title, the primary button
+/// and the mode switch change in place.
 class SignInPage extends StatefulWidget {
   const SignInPage({required this.store, super.key});
   final RemoteStore store;
@@ -106,138 +110,178 @@ class _SignInPageState extends State<SignInPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(
-      child: Center(
+  Widget build(BuildContext context) {
+    final store = widget.store;
+    final text = Theme.of(context).textTheme;
+    const gap = SizedBox(height: Space.m);
+    return Scaffold(
+      body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 440),
-            child: Form(
-              key: form,
-              child: AutofillGroup(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Icon(
-                      Icons.terminal_rounded,
-                      size: 56,
-                      color: Color(0xff4176e6),
-                    ),
-                    const SizedBox(height: 20),
-                    Text(
-                      'Your agents. Anywhere.',
-                      style: Theme.of(context).textTheme.headlineMedium,
-                    ),
-                    const SizedBox(height: 10),
-                    const Text(
-                      'Connect to your DSH relay. View every instance, or take control from this device.',
-                    ),
-                    const SizedBox(height: 32),
-                    TextFormField(
-                      controller: server,
-                      decoration: const InputDecoration(
-                        labelText: 'Relay server',
-                        hintText: 'https://relay.example.com',
-                      ),
-                      keyboardType: TextInputType.url,
-                      autocorrect: false,
-                      validator: requiredValue,
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: email,
-                      decoration: const InputDecoration(labelText: 'Email'),
-                      keyboardType: TextInputType.emailAddress,
-                      autofillHints: const [AutofillHints.username],
-                      autocorrect: false,
-                      validator: requiredValue,
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: password,
-                      obscureText: obscure,
-                      autofillHints: [
-                        register
-                            ? AutofillHints.newPassword
-                            : AutofillHints.password,
-                      ],
-                      decoration: InputDecoration(
-                        labelText: 'Password',
-                        suffixIcon: IconButton(
-                          tooltip: obscure ? 'Show password' : 'Hide password',
-                          onPressed: () => setState(() => obscure = !obscure),
-                          icon: Icon(
-                            obscure ? Icons.visibility : Icons.visibility_off,
-                          ),
+          padding: const EdgeInsets.fromLTRB(
+            Space.xl,
+            Space.xxxl,
+            Space.xl,
+            Space.xl,
+          ),
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: Form(
+                key: form,
+                child: AutofillGroup(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Swap(
+                        child: Text(
+                          register
+                              ? 'Create a relay account'
+                              : 'Sign in to your relay',
+                          key: ValueKey(register),
+                          style: text.headlineMedium,
                         ),
                       ),
-                      validator: (v) => (v?.length ?? 0) < 8 && register
-                          ? 'Use at least 8 characters'
-                          : requiredValue(v),
-                      onFieldSubmitted: (_) => submit(),
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: name,
-                      decoration: const InputDecoration(
-                        labelText: 'Controller name',
+                      const SizedBox(height: Space.xxl),
+                      TextFormField(
+                        controller: server,
+                        decoration: const InputDecoration(
+                          labelText: 'Relay server',
+                          hintText: 'https://relay.example.com',
+                        ),
+                        keyboardType: TextInputType.url,
+                        autocorrect: false,
+                        validator: requiredValue,
                       ),
-                      validator: requiredValue,
-                    ),
-                    const SizedBox(height: 20),
-                    if (widget.store.error != null)
-                      ErrorNotice(widget.store.error!),
-                    FilledButton(
-                      onPressed: widget.store.busy ? null : submit,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: widget.store.busy
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : Text(register ? 'Create account' : 'Sign in'),
+                      gap,
+                      TextFormField(
+                        controller: email,
+                        decoration: const InputDecoration(labelText: 'Email'),
+                        keyboardType: TextInputType.emailAddress,
+                        autofillHints: const [AutofillHints.username],
+                        autocorrect: false,
+                        validator: requiredValue,
                       ),
-                    ),
-                    if (widget.store.busy)
-                      TextButton(
-                        onPressed: widget.store.cancelAuthentication,
-                        child: const Text('Cancel sign-in'),
+                      gap,
+                      TextFormField(
+                        controller: password,
+                        obscureText: obscure,
+                        autofillHints: [
+                          register
+                              ? AutofillHints.newPassword
+                              : AutofillHints.password,
+                        ],
+                        decoration: InputDecoration(
+                          labelText: 'Password',
+                          suffixIcon: IconButton(
+                            tooltip: obscure
+                                ? 'Show password'
+                                : 'Hide password',
+                            onPressed: () => setState(() => obscure = !obscure),
+                            icon: AnimatedSwitcher(
+                              duration: motion(context),
+                              child: Icon(
+                                obscure
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                                key: ValueKey(obscure),
+                                size: 20,
+                              ),
+                            ),
+                          ),
+                        ),
+                        validator: (v) => (v?.length ?? 0) < 8 && register
+                            ? 'Use at least 8 characters'
+                            : requiredValue(v),
+                        onFieldSubmitted: (_) => submit(),
                       ),
-                    TextButton(
-                      onPressed: widget.store.busy
-                          ? null
-                          : () => setState(() => register = !register),
-                      child: Text(
-                        register
-                            ? 'Already have an account? Sign in'
-                            : 'Create an account',
+                      gap,
+                      TextFormField(
+                        controller: name,
+                        decoration: const InputDecoration(
+                          labelText: 'Controller name',
+                        ),
+                        validator: requiredValue,
                       ),
-                    ),
-                    TextButton(
-                      onPressed: widget.store.busy
-                          ? null
-                          : widget.store.restore,
-                      child: const Text('Restore saved session'),
-                    ),
-                    const SizedBox(height: 20),
-                    Text(
-                      'Your session is saved in device secure storage and restored on restart. Your password is never saved. Use HTTPS for remote servers.',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
+                      Reveal(
+                        padding: const EdgeInsets.only(top: Space.l),
+                        child: store.error == null
+                            ? null
+                            : ErrorNotice(store.error!),
+                      ),
+                      const SizedBox(height: Space.xl),
+                      Wrap(
+                        spacing: Space.l,
+                        runSpacing: Space.s,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          FilledButton(
+                            onPressed: store.busy ? null : submit,
+                            child: Resize(
+                              child: Swap(
+                                child: store.busy
+                                    ? SizedBox(
+                                        key: const ValueKey('busy'),
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          color: HarnessColors.of(
+                                            context,
+                                          ).secondary,
+                                        ),
+                                      )
+                                    : Text(
+                                        register ? 'Create account' : 'Sign in',
+                                        key: ValueKey(register),
+                                      ),
+                              ),
+                            ),
+                          ),
+                          Swap(
+                            child: store.busy
+                                ? TextButton(
+                                    key: const ValueKey('cancel'),
+                                    style: edgeAction,
+                                    onPressed: store.cancelAuthentication,
+                                    child: const Text('Cancel sign-in'),
+                                  )
+                                : TextButton(
+                                    key: ValueKey('mode-$register'),
+                                    style: edgeAction,
+                                    onPressed: () =>
+                                        setState(() => register = !register),
+                                    child: Text(
+                                      register
+                                          ? 'Already have an account? Sign in'
+                                          : 'Create an account',
+                                    ),
+                                  ),
+                          ),
+                        ],
+                      ),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton(
+                          style: edgeAction,
+                          onPressed: store.busy ? null : store.restore,
+                          child: const Text('Restore saved session'),
+                        ),
+                      ),
+                      const SizedBox(height: Space.xl),
+                      Text(
+                        'The session is kept in device secure storage and your password is never saved. Use HTTPS for remote servers.',
+                        style: text.bodySmall,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 String? requiredValue(String? value) =>
@@ -251,12 +295,13 @@ class FleetPage extends StatefulWidget {
 }
 
 class _FleetPageState extends State<FleetPage> {
+  static const sections = ['Instances', 'Command history', 'Account & devices'];
   int tab = 0;
   bool creating = false;
   Future<void> createInstance() async {
     final value = await inputDialog(
       context,
-      title: 'Add a DSH instance',
+      title: 'Add instance',
       label: 'Instance name',
     );
     if (value == null || !mounted) return;
@@ -264,10 +309,12 @@ class _FleetPageState extends State<FleetPage> {
     try {
       final result = await widget.store.createInstance(value);
       if (!mounted) return;
+      final token = result['connectorToken'].toString();
+      final id = object(result['instance'])['id'].toString();
       await showDialog<void>(
         context: context,
         barrierDismissible: false,
-        builder: (context) => AlertDialog(
+        builder: (context) => plainDialog(
           title: const Text('Connect your local DSH'),
           content: SingleChildScrollView(
             child: Column(
@@ -275,35 +322,32 @@ class _FleetPageState extends State<FleetPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Save this connector token now. It is shown only once. Save the token in an owner-only file (0600) inside a private directory (0700) on the DSH machine. Configure connectorTokenFile with that absolute path and the relay URL.',
+                  'This token is shown once. Save it in an owner-only file (0600) inside a private directory (0700) on the DSH machine, set connectorTokenFile to that absolute path with the relay URL, then clear your clipboard.',
                 ),
-                const SizedBox(height: 16),
-                SelectableText(
-                  result['connectorToken'].toString(),
-                  style: const TextStyle(fontFamily: 'monospace'),
+                const SizedBox(height: Space.l),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: CodeBlock(token)),
+                    const SizedBox(width: Space.xs),
+                    CopyIconButton(text: token, tooltip: 'Copy token'),
+                  ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: Space.m),
                 SelectableText(
-                  'Instance: ${object(result['instance'])['id']}\nRelay: ${widget.store.server}',
+                  'Relay: ${widget.store.server}\nInstance: $id',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: Space.m),
+                ListenableBuilder(
+                  listenable: widget.store,
+                  builder: (context, _) =>
+                      StatusDot.forInstance(widget.store.instance(id)),
                 ),
               ],
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () async {
-                await Clipboard.setData(
-                  ClipboardData(text: result['connectorToken'].toString()),
-                );
-                if (context.mounted) {
-                  message(
-                    context,
-                    'Token copied. Clear your clipboard after configuring the connector.',
-                  );
-                }
-              },
-              child: const Text('Copy token'),
-            ),
             FilledButton(
               onPressed: () => Navigator.pop(context),
               child: const Text('Saved'),
@@ -319,285 +363,285 @@ class _FleetPageState extends State<FleetPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('deepseek harness'),
-      actions: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Center(
-            child: StatusPill(
-              widget.store.connection,
-              good: widget.store.connection == 'Live',
-            ),
+  Widget build(BuildContext context) {
+    final store = widget.store;
+    final notice = store.error ?? store.journalError;
+    return Scaffold(
+      appBar: AppBar(
+        actions: [
+          Center(child: StatusDot.relay(store.connection)),
+          const SizedBox(width: Space.xs),
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: () {
+              store.retryNow();
+              store.refresh();
+            },
+            icon: const Icon(Icons.refresh),
           ),
-        ),
-        IconButton(
-          tooltip: 'Refresh',
-          onPressed: widget.store.refresh,
-          icon: const Icon(Icons.refresh),
-        ),
-      ],
-    ),
-    body: Column(
-      children: [
-        if (widget.store.error != null || widget.store.journalError != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: ErrorNotice(
-              widget.store.error ?? widget.store.journalError!,
+          const SizedBox(width: Space.xs),
+        ],
+      ),
+      drawer: Drawer(
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Space.m,
+              vertical: Space.l,
             ),
-          ),
-        Expanded(
-          child: [instancesView(), commandsView(), controllersView()][tab],
-        ),
-      ],
-    ),
-    floatingActionButton: tab == 0
-        ? FloatingActionButton.extended(
-            onPressed: creating ? null : createInstance,
-            icon: creating
-                ? const CircularProgressIndicator()
-                : const Icon(Icons.add),
-            label: const Text('Add instance'),
-          )
-        : null,
-    drawer: Drawer(
-      child: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(20),
-              child: Text(
-                'deepseek harness',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w400),
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  Space.l,
+                  Space.s,
+                  Space.l,
+                  Space.xl,
+                ),
+                child: Text(
+                  'DSH Remote',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
               ),
-            ),
-            for (final entry in [
-              (0, Icons.dns_outlined, 'Instances'),
-              (1, Icons.receipt_long_outlined, 'Commands'),
-              (2, Icons.devices_outlined, 'Account & devices'),
-            ])
-              ListTile(
-                selected: tab == entry.$1,
-                leading: Icon(entry.$2),
-                title: Text(entry.$3),
-                onTap: () {
-                  Navigator.pop(context);
-                  setState(() => tab = entry.$1);
+              for (var i = 0; i < sections.length; i++)
+                ListTile(
+                  selected: tab == i,
+                  title: Text(sections[i]),
+                  onTap: () {
+                    Navigator.pop(context);
+                    setState(() => tab = i);
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Reveal(
+            padding: const EdgeInsets.fromLTRB(Space.l, 0, Space.l, Space.m),
+            child: notice == null ? null : ErrorNotice(notice),
+          ),
+          Expanded(
+            child: AnimatedSwitcher(
+              duration: motion(context),
+              switchInCurve: motionCurve,
+              switchOutCurve: motionCurve,
+              transitionBuilder: fadeSlide,
+              child: KeyedSubtree(
+                key: ValueKey(tab),
+                child: switch (tab) {
+                  0 => instancesView(),
+                  1 => CommandHistoryView(
+                    store: store,
+                    showJournalError: false,
+                  ),
+                  _ => controllersView(),
                 },
               ),
-            const Spacer(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget instancesView() {
+    final store = widget.store;
+    final text = Theme.of(context).textTheme;
+    return RefreshIndicator(
+      onRefresh: () {
+        store.retryNow();
+        return store.refresh();
+      },
+      child: ListView(
+        padding: const EdgeInsets.only(top: Space.s, bottom: Space.xxxl),
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          Padding(
+            padding: pageInset,
+            child: Text('Instances', style: text.headlineMedium),
+          ),
+          const SizedBox(height: Space.l),
+          if (store.instances.isEmpty)
             Padding(
-              padding: const EdgeInsets.all(20),
+              padding: pageInset,
               child: Text(
-                widget.store.user?['email']?.toString() ?? '',
-                style: Theme.of(context).textTheme.bodySmall,
+                'No instances yet',
+                style: text.bodyMedium?.copyWith(
+                  color: HarnessColors.of(context).secondary,
+                ),
               ),
+            ),
+          for (final instance in store.instances) instanceRow(instance),
+          const SizedBox(height: Space.l),
+          Padding(
+            padding: pageInset,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: creating ? null : createInstance,
+                icon: Swap(
+                  child: creating
+                      ? const SizedBox(
+                          key: ValueKey('creating'),
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(),
+                        )
+                      : const Icon(Icons.add, size: 20),
+                ),
+                label: const Text('Add instance'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget instanceRow(Instance instance) {
+    final text = Theme.of(context).textTheme;
+    final store = widget.store;
+    return InkWell(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => InstancePage(store: store, id: instance.id),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Space.l,
+          vertical: Space.m,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    instance.name,
+                    style: text.titleMedium,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: Space.m),
+                StatusDot.forInstance(instance),
+              ],
+            ),
+            const SizedBox(height: Space.xs),
+            Text(
+              store.canWrite(instance.id)
+                  ? 'In control'
+                  : instance.lease != null && !instance.lease!.expired
+                  ? 'In use'
+                  : 'No active controller',
+              style: text.bodySmall,
             ),
           ],
         ),
       ),
-    ),
-  );
-  Widget instancesView() => RefreshIndicator(
-    onRefresh: widget.store.refresh,
-    child: ListView(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-      physics: const AlwaysScrollableScrollPhysics(),
+    );
+  }
+
+  Future<void> revoke(JsonMap controller) async {
+    final store = widget.store;
+    final id = controller['id'].toString();
+    final name = controller['name']?.toString() ?? 'Controller';
+    if (!await confirmDialog(
+      context,
+      'Revoke $name?',
+      'Its current login ($id) loses access and writer control.${id == store.controllerId ? ' This is this device, so you will be signed out.' : ''}',
+      'Revoke device',
+    )) {
+      return;
+    }
+    try {
+      await store.api!.request(
+        'POST',
+        'api/controllers/${Uri.encodeComponent(id)}/revoke',
+        {'controllerId': store.controllerId},
+      );
+      if (id == store.controllerId) {
+        await store.signOut(revoke: false);
+      } else {
+        await store.refresh();
+      }
+    } catch (e) {
+      if (mounted) message(context, e.toString());
+    }
+  }
+
+  Widget controllersView() {
+    final store = widget.store;
+    final text = Theme.of(context).textTheme;
+    return ListView(
+      padding: const EdgeInsets.only(top: Space.s, bottom: Space.xxxl),
       children: [
-        Text('Your fleet', style: Theme.of(context).textTheme.headlineMedium),
-        const SizedBox(height: 4),
-        const Text(
-          'One active controller per instance. Every other device can follow along.',
+        Padding(
+          padding: pageInset,
+          child: Text('Account & devices', style: text.headlineMedium),
         ),
-        const SizedBox(height: 24),
-        if (widget.store.instances.isEmpty)
-          const EmptyState(
-            icon: Icons.dns_outlined,
-            title: 'No instances yet',
-            detail:
-                'Add an instance and pair its local connector to get started.',
-          ),
-        for (final instance in widget.store.instances)
-          Card(
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) =>
-                      InstancePage(store: widget.store, id: instance.id),
-                ),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.terminal),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            instance.name,
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                        ),
-                        StatusPill(instance.statusLabel, good: instance.online),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      widget.store.canWrite(instance.id)
-                          ? 'You have control'
-                          : instance.lease != null && !instance.lease!.expired
-                          ? 'In use · tap to view'
-                          : 'No active controller',
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      instance.id,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-      ],
-    ),
-  );
-  Widget commandsView() => ListView(
-    padding: const EdgeInsets.all(16),
-    children: [
-      Text(
-        'Command history',
-        style: Theme.of(context).textTheme.headlineMedium,
-      ),
-      if (widget.store.journalError != null)
-        ErrorNotice(widget.store.journalError!),
-      TextButton.icon(
-        onPressed: widget.store.restoreCommandJournal,
-        icon: const Icon(Icons.lock_reset),
-        label: const Text('Reload saved command journal'),
-      ),
-      const SizedBox(height: 8),
-      const Text(
-        'This device’s commands and restored unresolved operations. Unknown outcomes are never automatically retried.',
-      ),
-      const SizedBox(height: 20),
-      if (widget.store.commands.isEmpty)
-        const EmptyState(
-          icon: Icons.receipt_long,
-          title: 'Nothing sent yet',
-          detail:
-              'Commands and their server-confirmed status will appear here.',
-        ),
-      for (final command in widget.store.commands.values.toList().reversed)
-        Card(
-          child: ExpansionTile(
-            title: Text(command.json['action']?.toString() ?? command.id),
-            subtitle: Text(command.status),
-            childrenPadding: const EdgeInsets.all(16),
+        const SizedBox(height: Space.l),
+        Padding(
+          padding: pageInset,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SelectableText(pretty(command.json)),
-              TextButton.icon(
-                onPressed: () async {
-                  try {
-                    await widget.store.checkCommand(command.id);
-                  } catch (e) {
-                    if (mounted) message(context, e.toString());
-                  }
-                },
-                icon: const Icon(Icons.refresh),
-                label: const Text('Check status'),
+              Text(
+                store.user?['email']?.toString() ?? '',
+                style: text.titleMedium,
               ),
+              Text(store.server, style: text.bodySmall),
             ],
           ),
         ),
-    ],
-  );
-  Widget controllersView() => ListView(
-    padding: const EdgeInsets.all(16),
-    children: [
-      Text(
-        'Connected identity',
-        style: Theme.of(context).textTheme.headlineMedium,
-      ),
-      const SizedBox(height: 16),
-      ListTile(
-        leading: const Icon(Icons.person_outline),
-        title: Text(widget.store.user?['email']?.toString() ?? ''),
-        subtitle: Text(widget.store.server),
-      ),
-      const Divider(),
-      const Text(
-        'Sign in on another device with a distinct controller name to add it to your account.',
-      ),
-      for (final controller in widget.store.controllers)
-        ListTile(
-          leading: Icon(
-            controller['id'] == widget.store.controllerId
-                ? Icons.smartphone
-                : Icons.devices,
-          ),
-          title: Text(controller['name']?.toString() ?? 'Controller'),
-          subtitle: Text(
-            controller['id'] == widget.store.controllerId
-                ? 'This device'
-                : controller['id'].toString(),
-          ),
-          trailing: controller['active'] == true
-              ? IconButton(
-                  tooltip: 'Revoke ${controller['name']}',
-                  icon: const Icon(Icons.logout),
-                  onPressed: () async {
-                    final id = controller['id'].toString();
-                    if (!await confirmDialog(
-                      context,
-                      'Revoke this device?',
-                      'Revoke ${controller['name']} ($id). Its current login loses access and writer control. Revoke this device to sign out here.',
-                      'Revoke device',
-                    )) {
-                      return;
-                    }
-                    try {
-                      await widget.store.api!.request(
-                        'POST',
-                        'api/controllers/${Uri.encodeComponent(id)}/revoke',
-                        {'controllerId': widget.store.controllerId},
-                      );
-                      if (id == widget.store.controllerId) {
-                        await widget.store.signOut(revoke: false);
-                      } else {
-                        await widget.store.refresh();
-                      }
-                    } catch (e) {
-                      if (mounted) message(context, e.toString());
-                    }
-                  },
-                )
-              : const Text('Revoked'),
+        const SizedBox(height: Space.xxl),
+        Padding(
+          padding: pageInset,
+          child: Text('Devices', style: text.titleLarge),
         ),
-      const SizedBox(height: 24),
-      OutlinedButton.icon(
-        onPressed: () async {
-          final confirm = await confirmDialog(
-            context,
-            'Sign out?',
-            'Your secure session will be removed and revoked. Any writer lease stops renewing and expires within 30 seconds.',
-            'Sign out',
-          );
-          if (confirm) await widget.store.signOut();
-        },
-        icon: const Icon(Icons.logout),
-        label: const Text('Sign out'),
-      ),
-    ],
-  );
+        const SizedBox(height: Space.s),
+        for (final controller in store.controllers)
+          ListTile(
+            title: Text(controller['name']?.toString() ?? 'Controller'),
+            subtitle: Text(
+              controller['id'] == store.controllerId
+                  ? 'This device'
+                  : controller['id'].toString(),
+            ),
+            trailing: controller['active'] == true
+                ? IconButton(
+                    tooltip: 'Revoke ${controller['name']}',
+                    icon: const Icon(Icons.logout, size: 20),
+                    onPressed: () => revoke(controller),
+                  )
+                : Text('Revoked', style: text.bodySmall),
+          ),
+        const SizedBox(height: Space.xxl),
+        Padding(
+          padding: pageInset,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton(
+              onPressed: () async {
+                final confirm = await confirmDialog(
+                  context,
+                  'Sign out?',
+                  'Your secure session will be removed and revoked. Any writer lease stops renewing and expires within 30 seconds.',
+                  'Sign out',
+                );
+                if (confirm) await store.signOut();
+              },
+              child: const Text('Sign out'),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class InstancePage extends StatefulWidget {
@@ -611,6 +655,7 @@ class InstancePage extends StatefulWidget {
 class _InstancePageState extends State<InstancePage> {
   bool busy = false;
   int operationEpoch = 0;
+  int controlEpoch = -1;
   String? error;
   List<JsonMap> sessions = [];
   @override
@@ -630,6 +675,9 @@ class _InstancePageState extends State<InstancePage> {
     if (mounted) setState(() {});
   }
 
+  /// True while the running operation is an acquire or release.
+  bool get controlling => busy && controlEpoch == operationEpoch;
+
   Future<void> run(Future<void> Function() operation) async {
     if (busy) return;
     final epoch = ++operationEpoch;
@@ -648,6 +696,17 @@ class _InstancePageState extends State<InstancePage> {
     }
   }
 
+  void stopWaiting() {
+    operationEpoch++;
+    widget.store.stopWaiting(widget.id);
+    widget.store.abandonControl(widget.id);
+    setState(() {
+      busy = false;
+      error =
+          'Stopped waiting. Refresh status and query any submitted command before trying again.';
+    });
+  }
+
   Future<void> load() => run(() async {
     final current = await widget.store.refreshInstance(widget.id);
     if (!current.online) return;
@@ -661,6 +720,7 @@ class _InstancePageState extends State<InstancePage> {
     final instance = widget.store.instance(widget.id);
     if (instance == null) return;
     if (widget.store.canWrite(instance.id)) {
+      controlEpoch = operationEpoch + 1;
       await run(() => widget.store.release(widget.id));
       return;
     }
@@ -674,6 +734,7 @@ class _InstancePageState extends State<InstancePage> {
         )) {
       return;
     }
+    controlEpoch = operationEpoch + 1;
     await run(() => widget.store.acquire(widget.id, takeover: takeover));
   }
 
@@ -695,17 +756,28 @@ class _InstancePageState extends State<InstancePage> {
 
   @override
   Widget build(BuildContext context) {
-    final instance = widget.store.instance(widget.id);
+    final store = widget.store;
+    final text = Theme.of(context).textTheme;
+    final instance = store.instance(widget.id);
     if (instance == null) {
       return Scaffold(
         appBar: AppBar(),
-        body: const Center(child: Text('Instance no longer available.')),
+        body: const Padding(
+          padding: pageInset,
+          child: Text('Instance no longer available.'),
+        ),
       );
     }
-    final owned = widget.store.canWrite(instance.id);
+    final owned = store.canWrite(instance.id);
+    final controlState = instance.lease?.pending == true || controlling
+        ? ControlState.confirming
+        : owned
+        ? ControlState.owned
+        : instance.lease != null && !instance.lease!.expired
+        ? ControlState.takeover
+        : ControlState.available;
     return Scaffold(
       appBar: AppBar(
-        title: Text(instance.name),
         actions: [
           IconButton(
             tooltip: 'Repositories',
@@ -713,10 +785,8 @@ class _InstancePageState extends State<InstancePage> {
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute<void>(
-                builder: (_) => RepositoriesPage(
-                  store: widget.store,
-                  instanceId: widget.id,
-                ),
+                builder: (_) =>
+                    RepositoriesPage(store: store, instanceId: widget.id),
               ),
             ),
           ),
@@ -725,144 +795,127 @@ class _InstancePageState extends State<InstancePage> {
             onPressed: busy ? null : load,
             icon: const Icon(Icons.refresh),
           ),
+          const SizedBox(width: Space.xs),
         ],
       ),
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        StatusPill(instance.statusLabel, good: instance.online),
-                        const SizedBox(width: 12),
-                        Text(owned ? 'Writer' : 'Viewer'),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      instance.lastSeenAt == null
-                          ? 'No heartbeat observed yet'
-                          : 'Last seen: ${instance.lastSeenAt!.toLocal()}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      owned
-                          ? 'You control this instance. Keep the app open to renew your lease.'
-                          : 'Read sessions freely. Take control to send prompts or change settings.',
-                    ),
-                    const SizedBox(height: 12),
-                    FilledButton.tonalIcon(
-                      onPressed:
-                          busy ||
-                              !instance.online ||
-                              widget.store.connection != 'Live' ||
-                              instance.lease?.pending == true
-                          ? null
-                          : control,
-                      icon: Icon(
-                        owned ? Icons.lock_open : Icons.gamepad_outlined,
-                      ),
-                      label: Text(
-                        instance.lease?.pending == true
-                            ? 'Waiting for connector…'
-                            : owned
-                            ? 'Release control'
-                            : instance.lease != null && !instance.lease!.expired
-                            ? 'Take over control'
-                            : 'Take control',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          if (busy)
-            Row(
-              children: [
-                const Expanded(child: LinearProgressIndicator()),
-                TextButton(
-                  onPressed: () {
-                    operationEpoch++;
-                    widget.store.stopWaiting(widget.id);
-                    widget.store.abandonControl(widget.id);
-                    setState(() {
-                      busy = false;
-                      error =
-                          'Stopped waiting. Refresh status and query any submitted command before trying again.';
-                    });
-                  },
-                  child: const Text('Stop waiting'),
-                ),
-              ],
-            ),
-          if (error != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: ErrorNotice(
-                error!,
-                onDismiss: () => setState(() => error = null),
-              ),
-            ),
+          BusyBar(busy: busy, onStop: stopWaiting),
           Expanded(
             child: RefreshIndicator(
               onRefresh: load,
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
+                padding: const EdgeInsets.only(
+                  top: Space.s,
+                  bottom: Space.xxxl,
+                ),
                 children: [
-                  Text(
-                    'Sessions',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 12),
-                  if (sessions.isEmpty && !busy)
-                    const EmptyState(
-                      icon: Icons.chat_bubble_outline,
-                      title: 'No sessions loaded',
-                      detail:
-                          'Refresh an online instance, or take control and create a session.',
-                    ),
-                  for (final session in sessions)
-                    Card(
-                      child: ListTile(
-                        leading: const Icon(Icons.chat_bubble_outline),
-                        title: Text(
-                          session['title']?.toString() ??
-                              session['cwd']?.toString() ??
-                              sessionId(session),
+                  Padding(
+                    padding: pageInset,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: Space.m,
+                          runSpacing: Space.xs,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Text(instance.name, style: text.headlineMedium),
+                            StatusDot.instance(store, instance),
+                          ],
                         ),
-                        subtitle: Text(sessionId(session)),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute<void>(
-                            builder: (_) => SessionPage(
-                              store: widget.store,
-                              instanceId: widget.id,
-                              sessionId: sessionId(session),
-                            ),
+                        const SizedBox(height: Space.xs),
+                        Text(
+                          instance.lastSeenAt == null
+                              ? 'No heartbeat observed yet'
+                              : 'Last seen: ${shortTime(instance.lastSeenAt!)}',
+                          style: text.bodySmall,
+                        ),
+                        const SizedBox(height: Space.l),
+                        ControlButton(
+                          state: controlState,
+                          onPressed:
+                              busy ||
+                                  !instance.online ||
+                                  store.connection != 'Live' ||
+                                  instance.lease?.pending == true
+                              ? null
+                              : control,
+                        ),
+                      ],
+                    ),
+                  ),
+                  Reveal(
+                    padding: const EdgeInsets.fromLTRB(
+                      Space.l,
+                      Space.l,
+                      Space.l,
+                      0,
+                    ),
+                    child: error == null
+                        ? null
+                        : ErrorNotice(
+                            error!,
+                            onDismiss: () => setState(() => error = null),
                           ),
+                  ),
+                  const SizedBox(height: Space.xxl),
+                  Padding(
+                    padding: const EdgeInsets.only(
+                      left: Space.l,
+                      right: Space.xs,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text('Sessions', style: text.titleLarge),
+                        ),
+                        TextButton(
+                          onPressed: owned && !busy ? createSession : null,
+                          child: const Text('New session'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: Space.xs),
+                  if (sessions.isEmpty && !busy)
+                    Padding(
+                      padding: pageInset,
+                      child: Text(
+                        'No sessions',
+                        style: text.bodyMedium?.copyWith(
+                          color: HarnessColors.of(context).secondary,
                         ),
                       ),
                     ),
+                  for (final session in sessions) sessionRow(session),
                 ],
               ),
             ),
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: owned && !busy ? createSession : null,
-        icon: const Icon(Icons.add),
-        label: const Text('New session'),
+    );
+  }
+
+  Widget sessionRow(JsonMap session) {
+    final id = sessionId(session);
+    final title =
+        session['title']?.toString() ?? session['cwd']?.toString() ?? id;
+    return ListTile(
+      title: Text(title),
+      subtitle: title == id ? null : Text(id),
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => SessionPage(
+            store: widget.store,
+            instanceId: widget.id,
+            sessionId: id,
+          ),
+        ),
       ),
     );
   }
@@ -871,6 +924,8 @@ class _InstancePageState extends State<InstancePage> {
 String sessionId(JsonMap session) =>
     (session['sessionId'] ?? session['id'] ?? session['sessionKey'] ?? '')
         .toString();
+
+const repositoryMarker = '[Selected repository metadata: untrusted data]';
 
 class SessionPage extends StatefulWidget {
   const SessionPage({
@@ -903,6 +958,8 @@ class _SessionPageState extends State<SessionPage> {
   final List<JsonMap> attachments = [];
   final List<String> referenceIds = [];
   int operation = 0;
+  int controlOperation = -1;
+  int statusSeqAtRead = -1;
   String get draftKey => '${widget.instanceId}:${widget.sessionId}';
   void saveDraft() {
     if (!widget.store.signedIn) return;
@@ -976,6 +1033,31 @@ class _SessionPageState extends State<SessionPage> {
   }
 
   bool get owned => widget.store.canWrite(widget.instanceId);
+
+  /// True while the running operation is an acquire or release.
+  bool get controlling => busy && controlOperation == operation;
+
+  RelayEvent? get latestStatus {
+    for (final event in widget.store.events.reversed) {
+      if (event.instanceId == widget.instanceId &&
+          event.kind == 'session.status' &&
+          object(event.payload)['sessionId'] == widget.sessionId) {
+        return event;
+      }
+    }
+    return null;
+  }
+
+  /// Whether the session's agent is running, from the newest of the last
+  /// read snapshot and live status events.
+  bool get running {
+    final status = latestStatus;
+    if (status != null && status.seq > statusSeqAtRead) {
+      return object(object(status.payload)['data'])['running'] == true;
+    }
+    return object(snapshot)['running'] == true;
+  }
+
   Future<void> run(Future<void> Function() work) async {
     if (busy) return;
     final generation = ++operation;
@@ -1027,10 +1109,18 @@ class _SessionPageState extends State<SessionPage> {
     }
   }
 
+  void commandHistory() => Navigator.push(
+    context,
+    MaterialPageRoute<void>(
+      builder: (_) => CommandHistoryPage(store: widget.store),
+    ),
+  );
+
   Future<void> control() async {
     final instance = widget.store.instance(widget.instanceId);
     if (instance == null) return;
     if (owned) {
+      controlOperation = operation + 1;
       await run(() => widget.store.release(widget.instanceId));
       return;
     }
@@ -1047,6 +1137,7 @@ class _SessionPageState extends State<SessionPage> {
         )) {
       return;
     }
+    controlOperation = operation + 1;
     await run(
       () => widget.store.acquire(widget.instanceId, takeover: takeover),
     );
@@ -1076,6 +1167,7 @@ class _SessionPageState extends State<SessionPage> {
     if (mounted) {
       setState(() {
         snapshot = value;
+        statusSeqAtRead = latestStatus?.seq ?? -1;
         historyCursor = cursor;
         history = mergeHistory([...history, ...records]);
         hasMoreHistory =
@@ -1185,6 +1277,20 @@ class _SessionPageState extends State<SessionPage> {
     });
   }
 
+  Future<void> cancelOperation() async {
+    if (!await confirmDialog(
+      context,
+      'Cancel this operation?',
+      'Send a cancellation to the currently running session operation.',
+      'Cancel operation',
+    )) {
+      return;
+    }
+    await run(() async {
+      await command('session.cancel', {});
+    });
+  }
+
   Future<void> attach() async {
     await run(() async {
       final epoch = operation;
@@ -1211,7 +1317,6 @@ class _SessionPageState extends State<SessionPage> {
       context,
       title: 'Choose provider',
       label: 'Provider identifier',
-      hint: 'Use Settings to inspect the available model catalog',
     );
     if (provider == null || !mounted) return;
     final value = await inputDialog(
@@ -1233,22 +1338,13 @@ class _SessionPageState extends State<SessionPage> {
       if (!mounted) return;
       final selection = await showDialog<String>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (context) => plainDialog(
           title: const Text('Session settings'),
           content: SizedBox(
             width: 520,
-            child: SingleChildScrollView(
-              child: SelectableText(
-                pretty(result),
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-              ),
-            ),
+            child: SingleChildScrollView(child: CodeBlock(pretty(result))),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
-            ),
             if (owned)
               TextButton(
                 onPressed: () => Navigator.pop(context, 'permissionPreset'),
@@ -1259,6 +1355,10 @@ class _SessionPageState extends State<SessionPage> {
                 onPressed: () => Navigator.pop(context, 'agentPreset'),
                 child: const Text('Agent preset'),
               ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
           ],
         ),
       );
@@ -1282,11 +1382,12 @@ class _SessionPageState extends State<SessionPage> {
           children: [
             for (final value in choices)
               SimpleDialogOption(
-                onPressed: () => Navigator.pop(context, value),
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Text(value),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Space.xl,
+                  vertical: Space.m,
                 ),
+                onPressed: () => Navigator.pop(context, value),
+                child: Text(value),
               ),
           ],
         ),
@@ -1328,6 +1429,7 @@ class _SessionPageState extends State<SessionPage> {
       allow ? 'Allow this request once?' : 'Reject this request?',
       pretty(review(request)),
       allow ? 'Allow once' : 'Reject',
+      code: true,
     )) {
       return;
     }
@@ -1349,10 +1451,20 @@ class _SessionPageState extends State<SessionPage> {
           object(event.payload)['sessionId'] == widget.sessionId)
         object(object(event.payload)['data']),
   ]);
+
+  Text quiet(String value) => Text(
+    value,
+    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+      color: HarnessColors.of(context).secondary,
+    ),
+  );
+
   Widget conversationView() {
     final events = mergedHistory;
     final stream =
         widget.store.streams['${widget.instanceId}:${widget.sessionId}'];
+    final text = Theme.of(context).textTheme;
+    final secondary = HarnessColors.of(context).secondary;
     return NotificationListener<UserScrollNotification>(
       onNotification: (notice) {
         autoFollow = notice.metrics.extentAfter < 100;
@@ -1360,20 +1472,9 @@ class _SessionPageState extends State<SessionPage> {
       },
       child: ListView(
         controller: transcriptScroll,
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(Space.l),
         children: [
-          if (hasMoreHistory)
-            OutlinedButton.icon(
-              onPressed: busy ? null : older,
-              icon: const Icon(Icons.history),
-              label: const Text('Load older history'),
-            ),
-          if (events.isEmpty && !busy)
-            const EmptyState(
-              icon: Icons.chat_bubble_outline,
-              title: 'Start a conversation',
-              detail: 'Send a prompt when you have control.',
-            ),
+          if (events.isEmpty && !busy) quiet('No messages yet'),
           for (final event in events.where(
             (event) => {
               'user/message',
@@ -1384,37 +1485,44 @@ class _SessionPageState extends State<SessionPage> {
           ))
             eventCard(event),
           if (stream != null && stream.text.isNotEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      stream.incomplete
-                          ? 'DSH · live, partial stream'
-                          : 'DSH · live',
-                      style: Theme.of(context).textTheme.labelLarge,
-                    ),
-                    const SizedBox(height: 8),
-                    SelectableText(stream.text),
-                  ],
-                ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: Space.xl),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    stream.incomplete
+                        ? 'DSH · live, partial stream'
+                        : 'DSH · live',
+                    style: text.labelMedium?.copyWith(color: secondary),
+                  ),
+                  const SizedBox(height: Space.xs),
+                  SelectableText(stream.text, style: text.bodyLarge),
+                ],
               ),
             ),
           ExpansionTile(
-            title: Text('Complete event timeline (${events.length})'),
+            dense: true,
+            title: Text(
+              'Event timeline (${events.length})',
+              style: text.bodySmall,
+            ),
             children: [
               for (final event in events)
                 ExpansionTile(
-                  title: Text('${event['type']} · #${event['seq']}'),
-                  children: [SelectableText(pretty(event))],
+                  dense: true,
+                  title: Text(
+                    '${event['type']} · #${event['seq']}',
+                    style: text.bodySmall,
+                  ),
+                  children: [CodeBlock(pretty(event))],
                 ),
             ],
           ),
           ExpansionTile(
-            title: const Text('Session metadata and raw snapshot'),
-            children: [SelectableText(pretty(snapshot))],
+            dense: true,
+            title: Text('Raw snapshot', style: text.bodySmall),
+            children: [CodeBlock(pretty(snapshot))],
           ),
         ],
       ),
@@ -1423,104 +1531,78 @@ class _SessionPageState extends State<SessionPage> {
 
   Widget eventCard(JsonMap event) {
     final data = object(event['data']);
-    String? role;
-    String text = '';
+    final text = Theme.of(context).textTheme;
+    final colors = HarnessColors.of(context);
+    final String role;
+    final String body;
     switch (event['type']) {
       case 'user/message':
         role = 'You';
-        text = contentText(data['content']);
+        body = contentText(data['content']);
       case 'assistant/message':
         role = 'DSH';
-        text = contentText(object(data['message'])['content']);
+        body = contentText(object(data['message'])['content']);
       case 'tool/result':
         role = 'Tool result';
-        text = contentText(data['content']);
+        body = contentText(data['content']);
       case 'tool/call':
         role = 'Tool · ${data['name']}';
-        text = data['arguments']?.toString() ?? '';
+        body = data['arguments']?.toString() ?? '';
+      default:
+        return const SizedBox.shrink();
     }
-    if (role == null) {
-      return ExpansionTile(
-        dense: true,
-        title: Text(
-          '${event['type']} · #${event['seq']}',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-        children: [
-          SelectableText(
-            pretty(event),
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+    final user = role == 'You';
+    final tool = role.startsWith('Tool');
+    final marker = user ? body.indexOf(repositoryMarker) : -1;
+    final width = MediaQuery.sizeOf(context).width;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Space.xl),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: width > 850 ? 780 : width * .94,
           ),
-        ],
-      );
-    }
-    return Align(
-      alignment: role == 'You' ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 20),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.sizeOf(context).width > 850
-              ? 780
-              : MediaQuery.sizeOf(context).width * .94,
-        ),
-        decoration: BoxDecoration(
-          color: role == 'You'
-              ? Theme.of(context).colorScheme.surfaceContainerHighest
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(
-            role.startsWith('Tool') ? 12 : 16,
-          ),
-          border: role.startsWith('Tool')
-              ? Border.all(color: Theme.of(context).dividerColor, width: .5)
-              : null,
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(role, style: Theme.of(context).textTheme.labelLarge),
-                const SizedBox(height: 8),
-                SelectableText(
-                  text.isEmpty
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                role,
+                style: text.labelMedium?.copyWith(color: colors.secondary),
+              ),
+              const SizedBox(height: Space.xs),
+              Container(
+                padding: user
+                    ? const EdgeInsets.symmetric(
+                        horizontal: Space.l,
+                        vertical: Space.m,
+                      )
+                    : EdgeInsets.zero,
+                decoration: user
+                    ? BoxDecoration(
+                        color: colors.fill,
+                        borderRadius: BorderRadius.circular(16),
+                      )
+                    : null,
+                child: SelectableText(
+                  body.isEmpty
                       ? '(Structured content)'
-                      : role == 'You'
-                      ? text
-                            .split(
-                              '[Selected repository metadata: untrusted data]',
-                            )
-                            .first
-                            .trim()
-                      : text,
+                      : user
+                      ? body.split(repositoryMarker).first.trim()
+                      : body,
+                  style: tool ? text.bodySmall : text.bodyLarge,
                 ),
-                if (role == 'You' &&
-                    text.contains(
-                      '[Selected repository metadata: untrusted data]',
-                    ))
-                  const Padding(
-                    padding: EdgeInsets.only(top: 8),
-                    child: Text(
-                      'Repository metadata included · inspect Details',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                  ),
+              ),
+              if (marker >= 0)
                 ExpansionTile(
                   dense: true,
-                  title: Text('Details · #${event['seq']}'),
-                  children: [
-                    SelectableText(
-                      pretty(event),
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
+                  title: Text(
+                    'Repository metadata included',
+                    style: text.bodySmall,
+                  ),
+                  children: [CodeBlock(body.substring(marker))],
                 ),
-              ],
-            ),
+            ],
           ),
         ),
       ),
@@ -1529,79 +1611,119 @@ class _SessionPageState extends State<SessionPage> {
 
   Widget queueView() {
     final inbox = object(object(projections)['values'])['inbox'];
+    final text = Theme.of(context).textTheme;
+    final lanes = {
+      for (final lane in ['next-step', 'next-turn'])
+        lane: object(inbox)[lane] as List? ?? [],
+    };
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(Space.l),
       children: [
-        OutlinedButton.icon(
-          onPressed: busy ? null : loadQueue,
-          icon: const Icon(Icons.refresh),
-          label: const Text('Refresh queue'),
-        ),
-        for (final lane in ['next-step', 'next-turn']) ...[
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Text(
+        if (lanes.values.every((items) => items.isEmpty))
+          quiet('Nothing queued')
+        else
+          for (final lane in lanes.keys) ...[
+            Text(
               lane == 'next-step' ? 'Next step · priority' : 'Next turn',
-              style: Theme.of(context).textTheme.titleMedium,
+              style: text.titleMedium,
             ),
-          ),
-          for (final raw in (object(inbox)[lane] as List? ?? []))
-            queueCard(object(raw), lane),
-        ],
-        const Text(
-          'Prioritize moves a pending message to the next step boundary. Running operations continue until cancelled.',
-        ),
+            const SizedBox(height: Space.s),
+            if (lanes[lane]!.isEmpty) Text('Empty', style: text.bodySmall),
+            for (final raw in lanes[lane]!) queueCard(object(raw), lane),
+            const SizedBox(height: Space.xl),
+          ],
       ],
     );
   }
 
-  Widget queueCard(JsonMap item, String lane) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(12),
+  Widget queueCard(JsonMap item, String lane) {
+    final content = contentText(item['content']);
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Space.l),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            contentText(item['content'])
-                .split('[Selected repository metadata: untrusted data]')
-                .first
-                .trim(),
+            content.split(repositoryMarker).first.trim(),
             maxLines: 4,
             overflow: TextOverflow.ellipsis,
           ),
-          if (contentText(
-            item['content'],
-          ).contains('[Selected repository metadata: untrusted data]'))
-            const Text(
-              'Repository metadata included',
-              style: TextStyle(fontSize: 12),
-            ),
+          if (content.contains(repositoryMarker))
+            Text('Repository metadata included', style: text.bodySmall),
           if (owned)
             Wrap(
-              spacing: 8,
+              spacing: Space.l,
               children: [
                 TextButton(
+                  style: edgeAction,
                   onPressed: busy ? null : () => changeQueue(item, 'edit'),
                   child: const Text('Edit message'),
                 ),
                 if (lane == 'next-turn')
                   TextButton(
+                    style: edgeAction,
                     onPressed: busy ? null : () => changeQueue(item, 'steer'),
                     child: const Text('Prioritize next step'),
                   ),
                 TextButton(
+                  style: edgeAction,
                   onPressed: busy ? null : () => changeQueue(item, 'remove'),
                   child: const Text('Remove'),
                 ),
               ],
             ),
           ExpansionTile(
-            title: const Text('Queue item details'),
-            children: [SelectableText(pretty(item))],
+            dense: true,
+            title: Text('Details', style: text.bodySmall),
+            children: [CodeBlock(pretty(item))],
           ),
         ],
       ),
-    ),
+    );
+  }
+
+  Widget liveView(List<RelayEvent> events) {
+    final text = Theme.of(context).textTheme;
+    if (events.isEmpty) {
+      return ListView(
+        padding: const EdgeInsets.all(Space.l),
+        children: [quiet('No live events yet')],
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(Space.l),
+      itemCount: events.length,
+      itemBuilder: (context, index) {
+        final event = events[index];
+        return Padding(
+          padding: const EdgeInsets.only(bottom: Space.l),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${event.kind} · ${event.createdAt.toLocal().toString().substring(11, 19)}',
+                style: text.labelMedium?.copyWith(
+                  color: HarnessColors.of(context).secondary,
+                ),
+              ),
+              const SizedBox(height: Space.s),
+              CodeBlock(pretty(event.payload)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget stateView() => ListView(
+    padding: const EdgeInsets.all(Space.l),
+    children: [
+      if (projections == null)
+        quiet('No snapshot loaded yet.')
+      else
+        CodeBlock(pretty(projections)),
+    ],
   );
 
   Widget approvalPanel() {
@@ -1612,59 +1734,79 @@ class _SessionPageState extends State<SessionPage> {
               request['instanceId'] == widget.instanceId,
         )
         .toList();
-    if (requests.isEmpty) return const SizedBox.shrink();
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 170),
-      child: ListView(
-        shrinkWrap: true,
-        children: [
-          for (final request in requests)
-            Card(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-                side: const BorderSide(color: Color(0xfff7ad31)),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Approval needed: ${request['toolName']}',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    Text(
-                      request['reason']?.toString() ??
-                          'Review the complete request before responding.',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (review(request)['toolArgumentsAvailable'] != true)
-                      const Text(
-                        'Refresh history to load matching tool arguments before allowing.',
-                      ),
-                    if (owned)
-                      Row(
-                        children: [
-                          TextButton(
-                            onPressed: busy
-                                ? null
-                                : () => respond(request, false),
-                            child: const Text('Reject'),
-                          ),
-                          FilledButton.tonal(
-                            onPressed:
-                                busy ||
-                                    review(request)['toolArgumentsAvailable'] !=
-                                        true
-                                ? null
-                                : () => respond(request, true),
-                            child: const Text('Review and allow'),
-                          ),
-                        ],
-                      ),
-                  ],
+    return Reveal(
+      child: requests.isEmpty
+          ? null
+          : ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 220),
+              child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.fromLTRB(
+                  Space.l,
+                  Space.s,
+                  Space.l,
+                  0,
                 ),
+                children: [
+                  for (final request in requests) approvalItem(request),
+                ],
+              ),
+            ),
+    );
+  }
+
+  Widget approvalItem(JsonMap request) {
+    final text = Theme.of(context).textTheme;
+    final colors = HarnessColors.of(context);
+    final available = review(request)['toolArgumentsAvailable'] == true;
+    return Container(
+      margin: const EdgeInsets.only(bottom: Space.s),
+      padding: const EdgeInsets.all(Space.l),
+      decoration: BoxDecoration(
+        color: colors.warningSurface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Approval needed: ${request['toolName']}',
+            style: text.titleMedium,
+          ),
+          const SizedBox(height: Space.xs),
+          Text(
+            request['reason']?.toString() ??
+                'Review the complete request before responding.',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: text.bodySmall,
+          ),
+          if (!available)
+            Padding(
+              padding: const EdgeInsets.only(top: Space.xs),
+              child: Text(
+                'Refresh history to load matching tool arguments before allowing.',
+                style: text.bodySmall?.copyWith(color: colors.warningLabel),
+              ),
+            ),
+          if (owned)
+            Padding(
+              padding: const EdgeInsets.only(top: Space.m),
+              child: Wrap(
+                spacing: Space.s,
+                runSpacing: Space.s,
+                children: [
+                  FilledButton(
+                    onPressed: busy || !available
+                        ? null
+                        : () => respond(request, true),
+                    child: const Text('Review and allow'),
+                  ),
+                  TextButton(
+                    onPressed: busy ? null : () => respond(request, false),
+                    child: const Text('Reject'),
+                  ),
+                ],
               ),
             ),
         ],
@@ -1672,9 +1814,169 @@ class _SessionPageState extends State<SessionPage> {
     );
   }
 
+  Widget composer() {
+    final store = widget.store;
+    final colors = HarnessColors.of(context);
+    final unresolved = store.hasUnresolvedWrite(widget.instanceId);
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.fill,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      padding: const EdgeInsets.fromLTRB(Space.s, Space.xs, Space.s, Space.xs),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Reveal(
+            padding: const EdgeInsets.only(top: Space.xs),
+            child: referenceIds.isEmpty
+                ? null
+                : SizedBox(
+                    height: 40,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        for (final reference in references)
+                          Padding(
+                            padding: const EdgeInsets.only(right: Space.s),
+                            child: InputChip(
+                              label: Text(
+                                '${reference.fullName}${reference.verified ? '' : ' · ${reference.localState}'}',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              onPressed: () =>
+                                  showRepositoryPreview(context, [reference]),
+                              onDeleted: () {
+                                setState(
+                                  () => referenceIds.remove(reference.id),
+                                );
+                                saveDraft();
+                              },
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+          ),
+          Reveal(
+            padding: const EdgeInsets.only(top: Space.xs),
+            child: attachments.isEmpty
+                ? null
+                : SizedBox(
+                    height: 40,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        for (final attachment in attachments)
+                          Padding(
+                            padding: const EdgeInsets.only(right: Space.s),
+                            child: InputChip(
+                              label: Text(
+                                attachment['name']?.toString() ?? 'Attachment',
+                              ),
+                              onDeleted: busy
+                                  ? null
+                                  : () {
+                                      setState(
+                                        () => attachments.remove(attachment),
+                                      );
+                                      saveDraft();
+                                    },
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+          ),
+          TextField(
+            controller: prompt,
+            minLines: 1,
+            maxLines: 5,
+            enabled: !busy,
+            decoration: const InputDecoration(
+              hintText: 'Message',
+              filled: false,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              disabledBorder: InputBorder.none,
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: Space.s,
+                vertical: Space.m,
+              ),
+            ),
+            textInputAction: TextInputAction.newline,
+          ),
+          Row(
+            children: [
+              IconButton(
+                tooltip: 'Upload attachment',
+                onPressed: owned && !busy && !unresolved ? attach : null,
+                icon: const Icon(Icons.add),
+                iconSize: 22,
+              ),
+              IconButton(
+                tooltip: 'Repository references',
+                onPressed: repositories,
+                icon: const Icon(Icons.account_tree_outlined),
+                iconSize: 20,
+              ),
+              const SizedBox(width: Space.xs),
+              Expanded(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    isExpanded: true,
+                    value: promptMode,
+                    style: Theme.of(context).textTheme.bodySmall,
+                    borderRadius: BorderRadius.circular(12),
+                    items: const [
+                      DropdownMenuItem(value: 'queue', child: Text('Queue')),
+                      DropdownMenuItem(
+                        value: 'steer',
+                        child: Text('Steer next step'),
+                      ),
+                    ],
+                    onChanged: busy
+                        ? null
+                        : (value) {
+                            setState(() => promptMode = value!);
+                            saveDraft();
+                          },
+                  ),
+                ),
+              ),
+              ValueListenableBuilder<TextEditingValue>(
+                valueListenable: prompt,
+                builder: (context, value, _) => SendStopButton(
+                  stop: running && value.text.trim().isEmpty,
+                  onSend:
+                      owned &&
+                          !busy &&
+                          !unresolved &&
+                          repositorySelectionError(
+                                references,
+                                widget.instanceId,
+                              ) ==
+                              null
+                      ? send
+                      : null,
+                  onStop: owned && !busy ? cancelOperation : null,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final events = widget.store.events
+    final store = widget.store;
+    final instance = store.instance(widget.instanceId);
+    final text = Theme.of(context).textTheme;
+    final events = store.events
         .where(
           (e) =>
               e.instanceId == widget.instanceId &&
@@ -1682,15 +1984,37 @@ class _SessionPageState extends State<SessionPage> {
                   object(e.payload)['sessionId'] == widget.sessionId),
         )
         .toList();
+    final takeover =
+        instance?.lease != null &&
+        !instance!.lease!.expired &&
+        instance.lease!.controllerId != store.controllerId;
+    final controlState = instance?.lease?.pending == true || controlling
+        ? ControlState.confirming
+        : owned
+        ? ControlState.owned
+        : takeover
+        ? ControlState.takeover
+        : ControlState.available;
     return Scaffold(
       appBar: AppBar(
         leading: const BackButton(),
+        titleSpacing: 0,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              widget.store.instance(widget.instanceId)?.name ?? 'Harness',
-              style: Theme.of(context).textTheme.bodySmall,
+            Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    instance?.name ?? 'Harness',
+                    style: text.bodySmall,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: Space.s),
+                Flexible(child: StatusDot.instance(store, instance)),
+              ],
             ),
             Text(
               object(snapshot)['title']?.toString() ?? widget.sessionId,
@@ -1699,13 +2023,6 @@ class _SessionPageState extends State<SessionPage> {
           ],
         ),
         actions: [
-          Builder(
-            builder: (context) => IconButton(
-              tooltip: 'Open navigation',
-              onPressed: () => Scaffold.of(context).openDrawer(),
-              icon: const Icon(Icons.menu),
-            ),
-          ),
           IconButton(
             tooltip: 'Load older history',
             onPressed: hasMoreHistory && !busy ? older : null,
@@ -1719,15 +2036,7 @@ class _SessionPageState extends State<SessionPage> {
           PopupMenuButton<String>(
             enabled: true,
             onSelected: (value) async {
-              if (value == 'repositories') await repositories();
-              if (value == 'commands' && context.mounted) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => CommandHistoryPage(store: widget.store),
-                  ),
-                );
-              }
+              if (value == 'commands') commandHistory();
               if (value == 'model') await model();
               if (value == 'settings') await settings();
               if (value == 'resume') {
@@ -1735,24 +2044,8 @@ class _SessionPageState extends State<SessionPage> {
                   await command('session.resume', {});
                 });
               }
-              if (value == 'cancel' &&
-                  context.mounted &&
-                  await confirmDialog(
-                    context,
-                    'Cancel this operation?',
-                    'Send a cancellation to the currently running session operation.',
-                    'Cancel operation',
-                  )) {
-                await run(() async {
-                  await command('session.cancel', {});
-                });
-              }
             },
             itemBuilder: (_) => [
-              const PopupMenuItem(
-                value: 'repositories',
-                child: Text('Repository references'),
-              ),
               const PopupMenuItem(
                 value: 'commands',
                 child: Text('Command history'),
@@ -1771,405 +2064,107 @@ class _SessionPageState extends State<SessionPage> {
                   value: 'model',
                   child: Text('Select model'),
                 ),
-              if (owned && !busy)
-                const PopupMenuItem(
-                  value: 'cancel',
-                  child: Text('Cancel operation'),
-                ),
             ],
           ),
         ],
       ),
-      drawer: Drawer(
-        child: SafeArea(
-          child: Column(
-            children: [
-              const Padding(
-                padding: EdgeInsets.all(20),
-                child: Text('deepseek harness', style: TextStyle(fontSize: 20)),
-              ),
-              ListTile(
-                leading: const Icon(Icons.chat_bubble_outline),
-                title: const Text('Sessions'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.pop(context);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.dns_outlined),
-                title: const Text('Instances'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.popUntil(context, (route) => route.isFirst);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.account_tree_outlined),
-                title: const Text('Repositories'),
-                onTap: () {
-                  Navigator.pop(context);
-                  repositories();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.receipt_long_outlined),
-                title: const Text('Command history'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (_) => CommandHistoryPage(store: widget.store),
-                    ),
-                  );
-                },
-              ),
-              const Spacer(),
-              ListTile(
-                leading: const Icon(Icons.close),
-                title: const Text('Close navigation'),
-                onTap: () => Navigator.pop(context),
-              ),
-            ],
-          ),
-        ),
-      ),
       body: SafeArea(
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (busy)
-              Row(
-                children: [
-                  const Expanded(child: LinearProgressIndicator()),
-                  TextButton(
-                    onPressed: stopWaiting,
-                    child: const Text('Stop waiting'),
-                  ),
-                ],
-              ),
-            if (error != null)
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: ErrorNotice(
-                  error!,
-                  onDismiss: () => setState(() => error = null),
-                ),
-              ),
+            BusyBar(busy: busy, onStop: stopWaiting),
+            Reveal(
+              padding: const EdgeInsets.fromLTRB(Space.l, Space.s, Space.l, 0),
+              child: error == null
+                  ? null
+                  : ErrorNotice(
+                      error!,
+                      onDismiss: () => setState(() => error = null),
+                    ),
+            ),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: SegmentedButton<int>(
-                segments: const [
-                  ButtonSegment(value: 0, label: Text('Chat')),
-                  ButtonSegment(value: 1, label: Text('Live')),
-                  ButtonSegment(value: 2, label: Text('State')),
-                  ButtonSegment(value: 3, label: Text('Queue')),
-                ],
-                selected: {tab},
-                onSelectionChanged: (v) {
-                  setState(() => tab = v.first);
-                  if (tab == 3 && !busy) loadQueue();
-                },
+              padding: const EdgeInsets.fromLTRB(Space.l, Space.s, Space.l, 0),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Transform.translate(
+                  offset: segmentEdgeOffset,
+                  child: SegmentedButton<int>(
+                    showSelectedIcon: false,
+                    segments: const [
+                      ButtonSegment(value: 0, label: Text('Chat')),
+                      ButtonSegment(value: 1, label: Text('Live')),
+                      ButtonSegment(value: 2, label: Text('State')),
+                      ButtonSegment(value: 3, label: Text('Queue')),
+                    ],
+                    selected: {tab},
+                    onSelectionChanged: (v) {
+                      setState(() => tab = v.first);
+                      if (tab == 3 && !busy) loadQueue();
+                    },
+                  ),
+                ),
               ),
             ),
             Expanded(
-              child: tab == 0
-                  ? conversationView()
-                  : tab == 3
-                  ? queueView()
-                  : tab == 1
-                  ? ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: events.length,
-                      itemBuilder: (context, index) {
-                        final event = events[index];
-                        return Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '${event.kind} · ${event.createdAt.toLocal().toString().substring(11, 19)}',
-                                  style: Theme.of(context).textTheme.labelLarge,
-                                ),
-                                const SizedBox(height: 8),
-                                SelectableText(
-                                  pretty(event.payload),
-                                  style: const TextStyle(
-                                    fontFamily: 'monospace',
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    )
-                  : SingleChildScrollView(
-                      padding: const EdgeInsets.all(16),
-                      child: Align(
-                        alignment: Alignment.topLeft,
-                        child: SelectableText(
-                          (tab == 0 ? snapshot : projections) == null
-                              ? 'No snapshot loaded yet.'
-                              : pretty(tab == 0 ? snapshot : projections),
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    ),
+              child: switch (tab) {
+                0 => conversationView(),
+                1 => liveView(events),
+                2 => stateView(),
+                _ => queueView(),
+              },
             ),
-            if (widget.store.journalError != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: ErrorNotice(widget.store.journalError!),
-              ),
+            Reveal(
+              padding: const EdgeInsets.fromLTRB(Space.l, 0, Space.l, Space.s),
+              child: store.journalError == null
+                  ? null
+                  : ErrorNotice(store.journalError!),
+            ),
             approvalPanel(),
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-              child: Center(
+              padding: const EdgeInsets.fromLTRB(
+                Space.l,
+                Space.s,
+                Space.l,
+                Space.m,
+              ),
+              child: Align(
+                alignment: Alignment.centerLeft,
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 812),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '${widget.store.instance(widget.instanceId)?.statusLabel ?? 'Offline'} · ${widget.store.connection == 'Live' ? '' : '${widget.store.connection} · '}${owned ? 'Writer' : 'Observer'}',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ),
-                          TextButton(
-                            onPressed:
-                                busy ||
-                                    widget.store
-                                            .instance(widget.instanceId)
-                                            ?.online !=
-                                        true ||
-                                    widget.store.connection != 'Live'
-                                ? null
-                                : control,
-                            child: Text(
-                              owned ? 'Release control' : 'Take control',
-                            ),
-                          ),
-                        ],
+                      ControlButton(
+                        state: controlState,
+                        onPressed:
+                            busy ||
+                                instance?.online != true ||
+                                store.connection != 'Live'
+                            ? null
+                            : control,
                       ),
-                      if (widget.store.hasUnresolvedWrite(widget.instanceId))
-                        Row(
-                          children: [
-                            const Expanded(
-                              child: Text(
-                                'A write is unresolved. Query its original result.',
-                                style: TextStyle(fontSize: 12),
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: () => Navigator.push(
-                                context,
-                                MaterialPageRoute<void>(
-                                  builder: (_) =>
-                                      CommandHistoryPage(store: widget.store),
-                                ),
-                              ),
-                              child: const Text('Query result'),
-                            ),
-                          ],
-                        ),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.surface,
-                          borderRadius: BorderRadius.circular(28),
-                          border: Border.all(
-                            color: Theme.of(context).dividerColor,
-                            width: .5,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: .04),
-                              blurRadius: 16,
-                              offset: const Offset(0, 3),
-                            ),
-                          ],
-                        ),
-                        padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (referenceIds.isNotEmpty)
-                              SizedBox(
-                                height: 44,
-                                child: ListView(
-                                  scrollDirection: Axis.horizontal,
-                                  children: [
-                                    for (final reference in references)
-                                      Padding(
-                                        padding: const EdgeInsets.only(
-                                          right: 6,
-                                        ),
-                                        child: InputChip(
-                                          label: Text(
-                                            '${reference.fullName}${reference.verified ? '' : ' · ${reference.localState}'}',
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                          onPressed: () =>
-                                              showRepositoryPreview(context, [
-                                                reference,
-                                              ]),
-                                          onDeleted: () {
-                                            setState(
-                                              () => referenceIds.remove(
-                                                reference.id,
-                                              ),
-                                            );
-                                            saveDraft();
-                                          },
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            if (attachments.isNotEmpty)
-                              SizedBox(
-                                height: 42,
-                                child: ListView(
-                                  scrollDirection: Axis.horizontal,
-                                  children: [
-                                    for (final attachment in attachments)
-                                      InputChip(
-                                        label: Text(
-                                          attachment['name']?.toString() ??
-                                              'Attachment',
-                                        ),
-                                        onDeleted: busy
-                                            ? null
-                                            : () {
-                                                setState(
-                                                  () => attachments.remove(
-                                                    attachment,
-                                                  ),
-                                                );
-                                                saveDraft();
-                                              },
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            TextField(
-                              controller: prompt,
-                              minLines: 1,
-                              maxLines: 5,
-                              enabled: !busy,
-                              decoration: const InputDecoration(
-                                hintText: 'Send a message to Harness…',
-                                filled: false,
-                                border: InputBorder.none,
-                                enabledBorder: InputBorder.none,
-                                focusedBorder: InputBorder.none,
-                                contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 12,
-                                ),
-                              ),
-                              textInputAction: TextInputAction.newline,
-                            ),
-                            Row(
-                              children: [
-                                IconButton(
-                                  tooltip: 'Upload attachment',
-                                  onPressed:
-                                      owned &&
-                                          !busy &&
-                                          !widget.store.hasUnresolvedWrite(
-                                            widget.instanceId,
-                                          )
-                                      ? attach
-                                      : null,
-                                  icon: const Icon(Icons.add),
-                                  iconSize: 22,
-                                ),
-                                IconButton(
-                                  tooltip: 'Repository references',
-                                  onPressed: repositories,
-                                  icon: const Icon(Icons.account_tree_outlined),
-                                  iconSize: 20,
-                                ),
-                                Expanded(
-                                  child: DropdownButtonHideUnderline(
-                                    child: DropdownButton<String>(
-                                      isExpanded: true,
-                                      value: promptMode,
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.bodySmall,
-                                      items: const [
-                                        DropdownMenuItem(
-                                          value: 'queue',
-                                          child: Text('Queue'),
-                                        ),
-                                        DropdownMenuItem(
-                                          value: 'steer',
-                                          child: Text('Steer next step'),
-                                        ),
-                                      ],
-                                      onChanged: busy
-                                          ? null
-                                          : (value) {
-                                              setState(
-                                                () => promptMode = value!,
-                                              );
-                                              saveDraft();
-                                            },
+                      Reveal(
+                        padding: const EdgeInsets.only(top: Space.s),
+                        child: store.hasUnresolvedWrite(widget.instanceId)
+                            ? Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      'A write is unresolved. Query its original result.',
+                                      style: text.bodySmall,
                                     ),
                                   ),
-                                ),
-                                IconButton.filled(
-                                  tooltip: 'Send prompt',
-                                  style: IconButton.styleFrom(
-                                    backgroundColor: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                    foregroundColor: Colors.white,
-                                    disabledBackgroundColor: Theme.of(
-                                      context,
-                                    ).colorScheme.surfaceContainerHighest,
-                                    disabledForegroundColor: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
+                                  TextButton(
+                                    onPressed: commandHistory,
+                                    child: const Text('Query result'),
                                   ),
-                                  onPressed:
-                                      owned &&
-                                          !busy &&
-                                          !widget.store.hasUnresolvedWrite(
-                                            widget.instanceId,
-                                          ) &&
-                                          repositorySelectionError(
-                                                references,
-                                                widget.instanceId,
-                                              ) ==
-                                              null
-                                      ? send
-                                      : null,
-                                  icon: const Icon(Icons.arrow_upward),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
+                                ],
+                              )
+                            : null,
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Model and tools run on your DSH host',
-                        style: Theme.of(
-                          context,
-                        ).textTheme.bodySmall?.copyWith(fontSize: 11),
-                      ),
+                      const SizedBox(height: Space.s),
+                      composer(),
                     ],
                   ),
                 ),
@@ -2182,130 +2177,37 @@ class _SessionPageState extends State<SessionPage> {
   }
 }
 
-class ErrorNotice extends StatelessWidget {
-  const ErrorNotice(this.text, {this.onDismiss, super.key});
-  final String text;
-  final VoidCallback? onDismiss;
-  @override
-  Widget build(BuildContext context) => Container(
-    width: double.infinity,
-    margin: const EdgeInsets.only(bottom: 12),
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.errorContainer,
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 86),
-            child: SingleChildScrollView(
-              child: Text(
-                text,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onErrorContainer,
-                ),
-              ),
-            ),
-          ),
-        ),
-        if (onDismiss != null)
-          IconButton(
-            tooltip: 'Dismiss error',
-            onPressed: onDismiss,
-            icon: const Icon(Icons.close),
-          ),
-      ],
-    ),
-  );
-}
-
-class StatusPill extends StatelessWidget {
-  const StatusPill(this.text, {this.good = false, super.key});
-  final String text;
-  final bool good;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-    decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      borderRadius: BorderRadius.circular(30),
-    ),
-    child: Text(
-      text,
-      style: TextStyle(
-        color: good
-            ? Theme.of(context).colorScheme.primary
-            : Theme.of(context).colorScheme.onSurfaceVariant,
-        fontSize: 12,
-      ),
-    ),
-  );
-}
-
-class EmptyState extends StatelessWidget {
-  const EmptyState({
-    required this.icon,
-    required this.title,
-    required this.detail,
-    super.key,
-  });
-  final IconData icon;
-  final String title;
-  final String detail;
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
-    child: Column(
-      children: [
-        Icon(
-          icon,
-          size: 40,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-        const SizedBox(height: 16),
-        Text(title, style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 8),
-        Text(
-          detail,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
 void message(BuildContext context, String text) =>
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+
 Future<bool> confirmDialog(
   BuildContext context,
   String title,
   String detail,
-  String action,
-) async =>
+  String action, {
+  bool code = false,
+}) async =>
     await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => plainDialog(
         title: Text(title),
-        content: SingleChildScrollView(child: Text(detail)),
+        content: SingleChildScrollView(
+          child: code ? CodeBlock(detail) : Text(detail),
+        ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Back'),
-          ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
             child: Text(action),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Back'),
           ),
         ],
       ),
     ) ??
     false;
+
 Future<String?> inputDialog(
   BuildContext context, {
   required String title,
@@ -2317,7 +2219,7 @@ Future<String?> inputDialog(
   final controller = TextEditingController(text: initialValue);
   final result = await showDialog<String>(
     context: context,
-    builder: (context) => AlertDialog(
+    builder: (context) => plainDialog(
       title: Text(title),
       content: TextField(
         controller: controller,
@@ -2330,10 +2232,6 @@ Future<String?> inputDialog(
         },
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
         FilledButton(
           onPressed: () {
             if (controller.text.trim().isNotEmpty) {
@@ -2341,6 +2239,10 @@ Future<String?> inputDialog(
             }
           },
           child: const Text('Continue'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
         ),
       ],
     ),
@@ -2350,69 +2252,119 @@ Future<String?> inputDialog(
   return result;
 }
 
+/// This device's commands and restored unresolved operations, shown both as
+/// a fleet section and as a page reachable from a session.
+class CommandHistoryView extends StatelessWidget {
+  const CommandHistoryView({
+    required this.store,
+    this.showJournalError = true,
+    super.key,
+  });
+  final RemoteStore store;
+  final bool showJournalError;
+
+  Future<void> query(BuildContext context, RemoteCommand command) async {
+    try {
+      await store.checkCommand(command.id);
+    } catch (e) {
+      if (context.mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (c) => plainDialog(
+            title: const Text('Result not confirmed'),
+            content: Text(e.toString()),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: store,
+    builder: (context, _) {
+      final text = Theme.of(context).textTheme;
+      final colors = HarnessColors.of(context);
+      final error = Theme.of(context).colorScheme.error;
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(
+          Space.l,
+          Space.s,
+          Space.l,
+          Space.xxxl,
+        ),
+        children: [
+          Text('Command history', style: text.headlineMedium),
+          const SizedBox(height: Space.s),
+          Text(
+            'Unknown results are never resent automatically. If a result is missing, query the original command again instead of sending a new one.',
+            style: text.bodySmall,
+          ),
+          if (showJournalError)
+            Reveal(
+              padding: const EdgeInsets.only(top: Space.l),
+              child: store.journalError == null
+                  ? null
+                  : ErrorNotice(store.journalError!),
+            ),
+          const SizedBox(height: Space.xl),
+          if (store.commands.isEmpty)
+            Text(
+              'No commands in this login session.',
+              style: text.bodyMedium?.copyWith(color: colors.secondary),
+            ),
+          for (final command in store.commands.values.toList().reversed)
+            ExpansionTile(
+              title: Text(command.json['action']?.toString() ?? command.id),
+              subtitle: Text(
+                command.status,
+                style: text.bodySmall?.copyWith(
+                  color: switch (command.status) {
+                    'indeterminate' => colors.warningLabel,
+                    'failed' => error,
+                    _ => colors.secondary,
+                  },
+                ),
+              ),
+              children: [
+                CodeBlock(pretty(command.json)),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    style: edgeAction,
+                    onPressed: () => query(context, command),
+                    child: const Text('Query original result'),
+                  ),
+                ),
+              ],
+            ),
+          const SizedBox(height: Space.l),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              style: edgeAction,
+              onPressed: store.restoreCommandJournal,
+              child: const Text('Reload saved command journal'),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+}
+
 class CommandHistoryPage extends StatelessWidget {
   const CommandHistoryPage({required this.store, super.key});
   final RemoteStore store;
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Command history')),
-    body: ListenableBuilder(
-      listenable: store,
-      builder: (context, _) => ListView(
-        padding: const EdgeInsets.all(18),
-        children: [
-          if (store.journalError != null) ErrorNotice(store.journalError!),
-          TextButton.icon(
-            onPressed: store.restoreCommandJournal,
-            icon: const Icon(Icons.lock_reset),
-            label: const Text('Reload saved command journal'),
-          ),
-          const Text(
-            'Query the original operation ID. An unknown result is never automatically resubmitted. A missing result can race an in-flight request; refresh again without creating another command.',
-          ),
-          if (store.commands.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(24),
-              child: Text('No commands in this login session.'),
-            ),
-          for (final command in store.commands.values.toList().reversed)
-            Card(
-              child: ExpansionTile(
-                title: Text(command.json['action']?.toString() ?? command.id),
-                subtitle: Text(command.status),
-                childrenPadding: const EdgeInsets.all(14),
-                children: [
-                  SelectableText(pretty(command.json)),
-                  TextButton.icon(
-                    onPressed: () async {
-                      try {
-                        await store.checkCommand(command.id);
-                      } catch (e) {
-                        if (context.mounted) {
-                          await showDialog<void>(
-                            context: context,
-                            builder: (c) => AlertDialog(
-                              title: const Text('Result not confirmed'),
-                              content: Text(e.toString()),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(c),
-                                  child: const Text('Close'),
-                                ),
-                              ],
-                            ),
-                          );
-                        }
-                      }
-                    },
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Query original result'),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    ),
+    appBar: AppBar(),
+    body: CommandHistoryView(store: store),
   );
 }

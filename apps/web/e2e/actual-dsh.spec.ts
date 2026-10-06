@@ -9,18 +9,18 @@ test('actual DSH browser flow: takeover, history, prompt, file, model, queue, ap
   await page.goto('/');
   await page.getByLabel('邮箱', { exact: true }).fill('real-runtime@example.invalid');
   await page.getByLabel('密码', { exact: true }).fill('local-fixture-password-only');
-  await page.getByLabel('当前设备名称').fill('Playwright actual DSH');
-  await page.getByRole('button', { name: '登录控制台' }).click();
+  await page.getByLabel('设备名称').fill('Playwright actual DSH');
+  await page.getByRole('button', { name: '登录', exact: true }).click();
   await expect(page.getByRole('heading', { name: /Actual upstream source/ })).toBeVisible();
-  await expect(page.getByText('实时同步', { exact: true })).toBeVisible();
+  await expect(page.locator('[data-stream="live"]')).toHaveCount(1);
   // Other sessions remain visible. A read alone must not take control.
   await expect(page.getByRole('button', { name: '接管', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '接管', exact: true }).click();
-  await page.getByRole('button', { name: '保持只读', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '取消', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: '接管', exact: true }).click();
-  await page.getByRole('button', { name: '确认接管', exact: true }).click();
-  await expect(page.getByText('你拥有控制权', { exact: true })).toBeVisible();
+  await page.getByRole('dialog').getByRole('button', { name: '接管', exact: true }).click();
+  await expect(page.getByRole('button', { name: /控制中/ })).toBeVisible();
   await page
     .getByRole('button', { name: /新建会话/ })
     .last()
@@ -114,7 +114,7 @@ test('actual DSH browser flow: takeover, history, prompt, file, model, queue, ap
   await expect(page.getByText('等待你的审批', { exact: true })).toBeVisible({ timeout: 20000 });
   await page.getByRole('button', { name: '停止任务', exact: true }).click();
   await expect(page.getByText('等待你的审批', { exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: '释放', exact: true }).click();
+  await page.getByRole('button', { name: /控制中，点击释放/ }).click();
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: '打开导航' }).click();

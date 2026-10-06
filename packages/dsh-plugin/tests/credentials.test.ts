@@ -2,7 +2,7 @@ import { test, expect, afterAll } from 'bun:test';
 import { mkdtempSync, writeFileSync, chmodSync, symlinkSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readConnectorToken, Config } from '../src/index.ts';
+import { readConnectorToken, manualConfigIssues, Config } from '../src/index.ts';
 const token = 'a'.repeat(43);
 const owned: string[] = [];
 const temporary = (prefix: string) => {
@@ -21,7 +21,7 @@ test.skipIf(process.platform === 'win32')(
     writeFileSync(path, token, { mode: 0o600 });
     expect(readConnectorToken(path)).toBe(token);
     expect(
-      Config['~standard'].validate({
+      manualConfigIssues({
         relayUrl: 'ws://localhost/ws/connector',
         connectorToken: token,
         connectorTokenFile: path,
@@ -29,7 +29,7 @@ test.skipIf(process.platform === 'win32')(
         journalPath: '/private/journal',
         allowedWorkspaceRoots: [dir],
       }),
-    ).toHaveProperty('issues');
+    ).toContain('Inline connectorToken is forbidden; pair from the Plugins page or use connectorTokenFile');
   },
 );
 test.skipIf(process.platform === 'win32')(
@@ -52,8 +52,20 @@ test.skipIf(process.platform === 'win32')(
 );
 
 test.skipIf(process.platform !== 'win32')(
-  'Windows credential storage is blocked until an ACL adapter is verified',
+  'Windows hosts pair through DSH credentials instead of token files',
   () => {
-    expect(() => readConnectorToken('C:\\private\\token')).toThrow('Windows Credential Manager');
+    expect(() => readConnectorToken('C:\\private\\token')).toThrow('pair from the DSH Plugins page');
   },
 );
+
+test('pairing mode needs no manual fields, while partial manual settings are rejected', () => {
+  expect(manualConfigIssues({ allowedWorkspaceRoots: [] })).toEqual([]);
+  expect(manualConfigIssues({ relayUrl: 'wss://relay/ws/connector' })).toContain(
+    'connectorTokenFile must be an absolute private credential file',
+  );
+  expect(manualConfigIssues({ journalPath: 'relative.sqlite' })).toContain(
+    'journalPath must be absolute',
+  );
+  // Unset profile lists resolve empty and defer to the values edited on the Plugins page.
+  expect(Config({}).allowedWorkspaceRoots).toEqual([]);
+});

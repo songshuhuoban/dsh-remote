@@ -45,19 +45,9 @@ Never expose the development listener directly to the internet. Production opera
 
 ## Connect a DSH instance
 
-Build the plugin with `bun run --cwd packages/dsh-plugin build`. Load it through the official DSH profile/overlay mechanism, using `packages/dsh-plugin/cordis.patch.yml` as a configuration example. The DSH runtime must be able to resolve `@dsh-remote/plugin`; do not launch package bins or invent an alternate DSH entrypoint.
+Install the DSH Remote plugin from DSH's **Plugins** page, then pair it: create an instance in the console, copy its one-time pairing link, and paste it on the plugin's page in DSH. The plugin stores the issued credential in DSH's credential store and runs the connector with DSH's own runtime; workspace folders that remote devices may use are chosen on the same page. Details, headless configuration and storage locations are in the [plugin README](packages/dsh-plugin/README.md).
 
-The required operator-supplied configuration is:
-
-- `relayUrl`: the exact `wss://…/ws/connector` endpoint; unencrypted `ws://` is permitted only on loopback for local tests
-- `connectorTokenFile`: absolute path to a local owner-only (0600) credential file inside a private (0700) directory. Save the one-time token there; never put the raw token in plugin config, version control or screenshots
-- `connectorPath`: absolute path to `packages/connector/src/index.ts`
-- `journalPath`: a private, writable SQLite journal path unique to this instance
-- `bunPath`: Bun executable path, or `bun` on the host's PATH
-- `allowedWorkspaceRoots`: explicit existing canonical workspace directories; remote clients cannot widen them
-- Optional positive allowlists for safe permission/agent presets
-
-The connector makes an outbound WebSocket connection. It opens no network listener. Model-provider keys remain in the local DSH host and are excluded from the Bun child environment.
+The connector makes an outbound WebSocket connection and opens no network listener. Model-provider keys remain on the DSH host and are excluded from the connector's environment.
 
 A real model provider must already be configured on the DSH host for live-generation acceptance. Never paste provider secrets into this repository, browser chat, test fixtures or public issue reports.
 

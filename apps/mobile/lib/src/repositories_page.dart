@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'models.dart';
 import 'store.dart';
+import 'theme.dart';
+import 'ui.dart';
 
 class RepositoriesPage extends StatefulWidget {
   const RepositoriesPage({
@@ -168,24 +170,34 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
   Future<void> disconnect() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => plainDialog(
         title: const Text('Disconnect GitHub?'),
         content: const Text(
           'Remove this relay account’s saved GitHub grant. Local references and files stay on the instance. This does not revoke the GitHub App on GitHub.',
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Disconnect'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
           ),
         ],
       ),
     );
     if (confirmed == true) await run(widget.store.disconnectGithub);
+  }
+
+  void stopWaiting() {
+    operation++;
+    widget.store.stopWaiting(widget.instanceId);
+    setState(() {
+      busy = false;
+      notice =
+          'Stopped waiting. A submitted operation may still finish; refresh the original result before retrying.';
+    });
   }
 
   @override
@@ -196,119 +208,110 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
         ? repositorySelectionError(chosen, widget.instanceId)
         : 'A selected reference is no longer available. Remove it and refresh.';
     final instance = widget.store.instance(widget.instanceId);
+    final text = Theme.of(context).textTheme;
+    final message = error ?? notice;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Repositories'),
         actions: [
           IconButton(
             tooltip: 'Refresh repositories',
             onPressed: busy ? null : refresh,
             icon: const Icon(Icons.refresh),
           ),
+          const SizedBox(width: Space.xs),
         ],
       ),
       body: SafeArea(
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            BusyBar(busy: busy, onStop: stopWaiting),
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 16, 18, 8),
+              padding: const EdgeInsets.fromLTRB(Space.l, Space.s, Space.l, 0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    instance?.name ?? widget.instanceId,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${instance?.statusLabel ?? 'Offline'} · ${widget.store.canWrite(widget.instanceId) ? 'Writer' : 'Observer'}',
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'GitHub access and local checkout verification are separate. Mapping uses an existing checkout; no cloning or file changes.',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              child: SegmentedButton<int>(
-                segments: const [
-                  ButtonSegment(value: 0, label: Text('Local references')),
-                  ButtonSegment(value: 1, label: Text('GitHub')),
-                ],
-                selected: {tab},
-                onSelectionChanged: (values) {
-                  setState(() => tab = values.first);
-                  if (tab == 1 && available.isEmpty && !busy) discover();
-                },
-              ),
-            ),
-            if (busy) const LinearProgressIndicator(),
-            if (error != null || notice != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        error ?? notice!,
-                        style: TextStyle(
-                          color: error == null
-                              ? null
-                              : Theme.of(context).colorScheme.error,
+                  Text('Repositories', style: text.headlineMedium),
+                  const SizedBox(height: Space.xs),
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          '${instance?.name ?? widget.instanceId} · ${widget.store.canWrite(widget.instanceId) ? 'Writer' : 'Observer'}',
+                          style: text.bodySmall,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      const SizedBox(width: Space.m),
+                      StatusDot.instance(widget.store, instance),
+                    ],
+                  ),
+                  const SizedBox(height: Space.l),
+                  Transform.translate(
+                    offset: segmentEdgeOffset,
+                    child: SegmentedButton<int>(
+                      showSelectedIcon: false,
+                      segments: const [
+                        ButtonSegment(
+                          value: 0,
+                          label: Text('Local references'),
+                        ),
+                        ButtonSegment(value: 1, label: Text('GitHub')),
+                      ],
+                      selected: {tab},
+                      onSelectionChanged: (values) {
+                        setState(() => tab = values.first);
+                        if (tab == 1 && available.isEmpty && !busy) {
+                          discover();
+                        }
+                      },
                     ),
-                    IconButton(
-                      tooltip: 'Dismiss notice',
-                      onPressed: () => setState(() {
+                  ),
+                ],
+              ),
+            ),
+            Reveal(
+              padding: const EdgeInsets.fromLTRB(Space.l, Space.m, Space.l, 0),
+              child: message == null
+                  ? null
+                  : Notice(
+                      message,
+                      error: error != null,
+                      onDismiss: () => setState(() {
                         error = null;
                         notice = null;
                       }),
-                      icon: const Icon(Icons.close),
                     ),
-                  ],
-                ),
-              ),
-            if (busy)
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () {
-                    operation++;
-                    widget.store.stopWaiting(widget.instanceId);
-                    setState(() {
-                      busy = false;
-                      notice =
-                          'Stopped waiting. A submitted operation may still finish; refresh the original result before retrying.';
-                    });
-                  },
-                  child: const Text('Stop waiting'),
-                ),
-              ),
+            ),
             Expanded(child: tab == 0 ? localList(references) : githubList()),
             if (widget.pickForMessage)
               Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.fromLTRB(
+                  Space.l,
+                  Space.s,
+                  Space.l,
+                  Space.m,
+                ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (selectionError != null)
-                      Text(
-                        selectionError,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    FilledButton.icon(
+                    Reveal(
+                      padding: const EdgeInsets.only(bottom: Space.s),
+                      child: selectionError == null
+                          ? null
+                          : Text(
+                              selectionError,
+                              style: text.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                    ),
+                    FilledButton(
                       onPressed: busy || selectionError != null
                           ? null
                           : () => Navigator.pop(context, selected.toList()),
-                      icon: const Icon(Icons.check),
-                      label: Text(
+                      child: Text(
                         'Use ${selected.length} reference${selected.length == 1 ? '' : 's'}',
                       ),
                     ),
@@ -321,69 +324,92 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
     );
   }
 
-  Widget localList(List<RepositoryReference> references) => ListView(
-    padding: const EdgeInsets.all(18),
-    children: [
-      OutlinedButton.icon(
-        onPressed: busy ? null : mapManual,
-        icon: const Icon(Icons.add),
-        label: const Text('Map existing checkout'),
-      ),
-      if (references.isEmpty)
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 36),
-          child: Text(
-            'No local references yet. Map a canonical absolute checkout path on this instance. GitHub authorization is optional for manual mapping.',
+  Widget localList(List<RepositoryReference> references) {
+    final text = Theme.of(context).textTheme;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(Space.l, Space.xl, Space.l, Space.xl),
+      children: [
+        if (references.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: Space.l),
+            child: Text(
+              'No local references yet.',
+              style: text.bodyMedium?.copyWith(
+                color: HarnessColors.of(context).secondary,
+              ),
+            ),
+          ),
+        for (final reference in references) referenceItem(reference),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton(
+            onPressed: busy ? null : mapManual,
+            child: const Text('Map existing checkout'),
           ),
         ),
-      for (final reference in references)
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(14),
+      ],
+    );
+  }
+
+  Widget referenceItem(RepositoryReference reference) {
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Space.xl),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (widget.pickForMessage)
+            Padding(
+              padding: const EdgeInsets.only(right: Space.s),
+              child: Checkbox(
+                value: selected.contains(reference.id),
+                onChanged:
+                    busy ||
+                        (!reference.verified &&
+                            !selected.contains(reference.id))
+                    ? null
+                    : (v) => choose(reference, v),
+              ),
+            ),
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    if (widget.pickForMessage)
-                      Checkbox(
-                        value: selected.contains(reference.id),
-                        onChanged:
-                            busy ||
-                                (!reference.verified &&
-                                    !selected.contains(reference.id))
-                            ? null
-                            : (v) => choose(reference, v),
-                      ),
                     Expanded(
-                      child: Text(
-                        reference.fullName,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
+                      child: Text(reference.fullName, style: text.titleMedium),
                     ),
                     if (!reference.selected)
-                      const Text('Hidden', style: TextStyle(fontSize: 12)),
+                      Text('Hidden', style: text.bodySmall),
                   ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: Space.xs),
                 Text(
                   'Local: ${reference.localState} · Access: ${reference.authorization}',
-                  style: const TextStyle(fontSize: 12),
+                  style: text.bodySmall,
                 ),
-                const SizedBox(height: 6),
-                SelectableText(
-                  reference.localPath,
-                  style: const TextStyle(fontSize: 12),
-                ),
+                SelectableText(reference.localPath, style: text.bodySmall),
                 if (reference.json['branch'] != null)
                   Text(
                     'Branch: ${reference.json['branch']} · verified ${reference.json['verifiedAt'] == null ? 'unknown' : DateTime.fromMillisecondsSinceEpoch((reference.json['verifiedAt'] as num).toInt()).toLocal()}',
-                    style: const TextStyle(fontSize: 12),
+                    style: text.bodySmall,
+                  ),
+                if (!reference.verified)
+                  Padding(
+                    padding: const EdgeInsets.only(top: Space.xs),
+                    child: Text(
+                      'Add to message only after host verification. Files and working directory stay unchanged.',
+                      style: text.bodySmall?.copyWith(
+                        color: HarnessColors.of(context).warningLabel,
+                      ),
+                    ),
                   ),
                 Wrap(
-                  spacing: 4,
+                  spacing: Space.l,
                   children: [
                     TextButton(
+                      style: edgeAction,
                       onPressed:
                           busy ||
                               !widget.store.canWrite(widget.instanceId) ||
@@ -398,10 +424,12 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
                       child: const Text('Verify checkout'),
                     ),
                     TextButton(
+                      style: edgeAction,
                       onPressed: () => preview(reference),
                       child: const Text('Preview metadata'),
                     ),
                     TextButton(
+                      style: edgeAction,
                       onPressed: busy
                           ? null
                           : () => run(
@@ -419,24 +447,45 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
                     ),
                   ],
                 ),
-                if (!reference.verified)
-                  const Text(
-                    'Add to message only after host verification. Files and working directory stay unchanged.',
-                    style: TextStyle(fontSize: 12),
-                  ),
               ],
             ),
           ),
-        ),
-    ],
-  );
+        ],
+      ),
+    );
+  }
 
   Widget githubList() {
     final status = widget.store.githubStatus;
     final configured = status?['configured'] == true;
     final connected = status?['state'] == 'connected';
+    final text = Theme.of(context).textTheme;
+    final secondary = text.bodyMedium?.copyWith(
+      color: HarnessColors.of(context).secondary,
+    );
+    Widget pager(
+      String label, {
+      required String previous,
+      required String next,
+      required VoidCallback? onPrevious,
+      required VoidCallback? onNext,
+    }) => Row(
+      children: [
+        Expanded(child: Text(label, style: text.bodySmall)),
+        IconButton(
+          tooltip: previous,
+          onPressed: onPrevious,
+          icon: const Icon(Icons.chevron_left),
+        ),
+        IconButton(
+          tooltip: next,
+          onPressed: onNext,
+          icon: const Icon(Icons.chevron_right),
+        ),
+      ],
+    );
     return ListView(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.fromLTRB(Space.l, Space.xl, Space.l, Space.xl),
       children: [
         Text(
           connected
@@ -446,96 +495,99 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
               : status?['state'] == 'expired'
               ? 'GitHub access expired'
               : 'GitHub is disconnected',
-          style: Theme.of(context).textTheme.titleMedium,
+          style: text.titleMedium,
         ),
-        const SizedBox(height: 10),
-        const Text(
-          'Connect GitHub using the signed-in web app for this same relay account, in one browser. Native OAuth is not supported. Return here and refresh after granting read-only access.',
+        const SizedBox(height: Space.s),
+        Text(
+          'Native OAuth is not supported. Grant read-only access in the web app signed in to this same relay account, then refresh here.',
+          style: text.bodySmall,
         ),
-        const SizedBox(height: 8),
-        SelectableText(widget.store.server),
+        const SizedBox(height: Space.xs),
+        SelectableText(widget.store.server, style: text.bodySmall),
         if (!configured)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
+          Padding(
+            padding: const EdgeInsets.only(top: Space.s),
             child: Text(
               'Ask the relay operator to configure a read-only GitHub App. Manual local mapping still works.',
+              style: text.bodySmall,
             ),
           ),
+        const SizedBox(height: Space.s),
         Wrap(
-          spacing: 8,
+          spacing: Space.l,
           children: [
             TextButton(
+              style: edgeAction,
               onPressed: busy ? null : () => discover(),
               child: const Text('Refresh GitHub access'),
             ),
             if (connected)
               TextButton(
+                style: edgeAction,
                 onPressed: busy ? null : disconnect,
                 child: const Text('Disconnect GitHub'),
               ),
           ],
         ),
         if (connected) ...[
+          const SizedBox(height: Space.l),
           if (installations.isEmpty && !busy)
-            const Text(
+            Text(
               'No accessible installations. Select repositories for this App in the signed-in web flow, then refresh.',
+              style: secondary,
             ),
           if (installations.isNotEmpty)
-            DropdownButton<int>(
-              isExpanded: true,
-              value: installationId,
-              items: [
-                for (final installation in installations)
-                  DropdownMenuItem(
-                    value: (installation['id'] as num).toInt(),
-                    child: Text(
-                      object(installation['account'])['login'].toString(),
+            DropdownButtonHideUnderline(
+              child: DropdownButton<int>(
+                isExpanded: true,
+                value: installationId,
+                borderRadius: BorderRadius.circular(12),
+                items: [
+                  for (final installation in installations)
+                    DropdownMenuItem(
+                      value: (installation['id'] as num).toInt(),
+                      child: Text(
+                        object(installation['account'])['login'].toString(),
+                      ),
                     ),
-                  ),
-              ],
-              onChanged: busy
-                  ? null
-                  : (v) {
-                      setState(() {
-                        installationId = v;
-                        repositoryPage = 1;
-                      });
-                      discover(reloadInstallations: false);
-                    },
+                ],
+                onChanged: busy
+                    ? null
+                    : (v) {
+                        setState(() {
+                          installationId = v;
+                          repositoryPage = 1;
+                        });
+                        discover(reloadInstallations: false);
+                      },
+              ),
             ),
-          Row(
-            children: [
-              Text('Installation page $installationPage'),
-              const Spacer(),
-              IconButton(
-                tooltip: 'Previous installations',
-                onPressed: busy || installationPage == 1
-                    ? null
-                    : () {
-                        installationPage--;
-                        discover();
-                      },
-                icon: const Icon(Icons.chevron_left),
-              ),
-              IconButton(
-                tooltip: 'Next installations',
-                onPressed: busy || !moreInstallations
-                    ? null
-                    : () {
-                        installationPage++;
-                        discover();
-                      },
-                icon: const Icon(Icons.chevron_right),
-              ),
-            ],
+          pager(
+            'Installation page $installationPage',
+            previous: 'Previous installations',
+            next: 'Next installations',
+            onPrevious: busy || installationPage == 1
+                ? null
+                : () {
+                    installationPage--;
+                    discover();
+                  },
+            onNext: busy || !moreInstallations
+                ? null
+                : () {
+                    installationPage++;
+                    discover();
+                  },
           ),
           if (available.isEmpty && !busy)
-            const Text(
+            Text(
               'No repositories on this page. Refresh access or choose another installation.',
+              style: secondary,
             ),
           for (final repository in available)
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
               title: Text(repository['fullName'].toString()),
               subtitle: Text(
                 '${repository['defaultBranch']} · ${repository['private'] == true ? 'Private' : 'Public'}${repository['archived'] == true ? ' · Archived' : ''}',
@@ -556,41 +608,41 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
                       }
                     }),
             ),
-          Row(
+          pager(
+            'Repository page $repositoryPage',
+            previous: 'Previous repositories',
+            next: 'Next repositories',
+            onPrevious: busy || repositoryPage == 1
+                ? null
+                : () {
+                    repositoryPage--;
+                    discover(reloadInstallations: false);
+                  },
+            onNext: busy || !moreRepositories
+                ? null
+                : () {
+                    repositoryPage++;
+                    discover(reloadInstallations: false);
+                  },
+          ),
+          const SizedBox(height: Space.s),
+          Wrap(
+            spacing: Space.s,
+            runSpacing: Space.s,
             children: [
-              Text('Repository page $repositoryPage'),
-              const Spacer(),
-              IconButton(
-                tooltip: 'Previous repositories',
-                onPressed: busy || repositoryPage == 1
-                    ? null
-                    : () {
-                        repositoryPage--;
-                        discover(reloadInstallations: false);
-                      },
-                icon: const Icon(Icons.chevron_left),
+              FilledButton(
+                onPressed: busy || selectedGithub.isEmpty ? null : mapGithub,
+                child: Text(
+                  'Map ${selectedGithub.length} selected repositories',
+                ),
               ),
-              IconButton(
-                tooltip: 'Next repositories',
-                onPressed: busy || !moreRepositories
-                    ? null
-                    : () {
-                        repositoryPage++;
-                        discover(reloadInstallations: false);
-                      },
-                icon: const Icon(Icons.chevron_right),
-              ),
+              if (selectedGithub.isNotEmpty)
+                TextButton(
+                  onPressed: busy ? null : () => setState(selectedGithub.clear),
+                  child: const Text('Clear selection'),
+                ),
             ],
           ),
-          FilledButton(
-            onPressed: busy || selectedGithub.isEmpty ? null : mapGithub,
-            child: Text('Map ${selectedGithub.length} selected repositories'),
-          ),
-          if (selectedGithub.isNotEmpty)
-            TextButton(
-              onPressed: busy ? null : () => setState(selectedGithub.clear),
-              child: const Text('Clear selection'),
-            ),
         ],
       ],
     );
@@ -618,18 +670,20 @@ class _RepositoryMappingDialogState extends State<RepositoryMappingDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => plainDialog(
     title: const Text('Map existing checkout'),
     content: SingleChildScrollView(
       child: Form(
         key: form,
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
+            Text(
               'This only records a reference. The path must already exist under this host’s allowed roots; verification is a separate writer action.',
+              style: Theme.of(context).textTheme.bodySmall,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: Space.l),
             TextFormField(
               controller: url,
               decoration: const InputDecoration(
@@ -643,7 +697,7 @@ class _RepositoryMappingDialogState extends State<RepositoryMappingDialog> {
                   ? null
                   : 'Use a canonical GitHub HTTPS repository URL',
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: Space.m),
             TextFormField(
               controller: path,
               decoration: const InputDecoration(
@@ -652,22 +706,16 @@ class _RepositoryMappingDialogState extends State<RepositoryMappingDialog> {
               ),
               validator: validateCheckoutPath,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: Space.m),
             TextFormField(
               controller: branch,
-              decoration: const InputDecoration(
-                labelText: 'Descriptive default branch',
-              ),
+              decoration: const InputDecoration(labelText: 'Default branch'),
             ),
           ],
         ),
       ),
     ),
     actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancel'),
-      ),
       FilledButton(
         onPressed: () {
           if (form.currentState!.validate()) {
@@ -680,6 +728,10 @@ class _RepositoryMappingDialogState extends State<RepositoryMappingDialog> {
           }
         },
         child: const Text('Save reference'),
+      ),
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
       ),
     ],
   );
@@ -720,7 +772,7 @@ class _GithubMappingsDialogState extends State<GithubMappingsDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) => plainDialog(
     title: const Text('Bind existing checkouts'),
     content: SizedBox(
       width: 480,
@@ -729,13 +781,15 @@ class _GithubMappingsDialogState extends State<GithubMappingsDialog> {
           key: form,
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                'Enter one existing host path per repository. Access is rechecked when saved. This does not clone, fetch or change files.',
+              Text(
+                'One existing host path per repository. Access is rechecked when saved; nothing is cloned, fetched or changed.',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
               for (var i = 0; i < paths.length; i++)
                 Padding(
-                  padding: const EdgeInsets.only(top: 16),
+                  padding: const EdgeInsets.only(top: Space.m),
                   child: TextFormField(
                     controller: paths[i],
                     decoration: InputDecoration(
@@ -751,10 +805,6 @@ class _GithubMappingsDialogState extends State<GithubMappingsDialog> {
       ),
     ),
     actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancel'),
-      ),
       FilledButton(
         onPressed: () {
           if (form.currentState!.validate()) {
@@ -774,6 +824,10 @@ class _GithubMappingsDialogState extends State<GithubMappingsDialog> {
         },
         child: const Text('Save references'),
       ),
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancel'),
+      ),
     ],
   );
 }
@@ -783,7 +837,7 @@ Future<void> showRepositoryPreview(
   List<RepositoryReference> references,
 ) => showDialog<void>(
   context: context,
-  builder: (context) => AlertDialog(
+  builder: (context) => plainDialog(
     title: const Text('Message context preview'),
     content: SizedBox(
       width: 520,
@@ -792,17 +846,17 @@ Future<void> showRepositoryPreview(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'Only verified metadata is added. Each send rechecks the checkout. Repository text is untrusted data; no tokens, repository file contents or executable commands are included.',
+            Text(
+              'Only this verified metadata is added, as untrusted data, and each send rechecks the checkout. No tokens, file contents or executable commands are included.',
+              style: Theme.of(context).textTheme.bodySmall,
             ),
-            const SizedBox(height: 16),
-            SelectableText(
+            const SizedBox(height: Space.l),
+            CodeBlock(
               pretty({
                 'repositories': references
                     .map((r) => r.contextPreview)
                     .toList(),
               }),
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
             ),
           ],
         ),

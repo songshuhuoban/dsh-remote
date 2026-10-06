@@ -397,6 +397,11 @@ void main() {
         'rendered durable assistant answer',
       );
 
+      final approvalPrompted = count('session.prompt');
+      await tester.enterText(
+        find.byType(TextField).last,
+        'APPROVAL_INTEGRATION Flutter widget explicit consent',
+      );
       await until(
         () =>
             tester
@@ -409,11 +414,6 @@ void main() {
                 .onPressed !=
             null,
         'composer ready for approval',
-      );
-      final approvalPrompted = count('session.prompt');
-      await tester.enterText(
-        find.byType(TextField).last,
-        'APPROVAL_INTEGRATION Flutter widget explicit consent',
       );
       await tap(find.byTooltip('Send prompt'));
       await latestDone('session.prompt', approvalPrompted);
@@ -517,7 +517,7 @@ void main() {
         'secure-storage interface restart restoration',
       );
       expect(restored.controllerId, originalController);
-      expect(find.text('Your fleet'), findsOneWidget);
+      expect(find.text('Instances'), findsWidgets);
       await until(
         () => restored!.connection == 'Live',
         'restored event stream ready',

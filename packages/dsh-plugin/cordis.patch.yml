@@ -1,10 +1,5 @@
+# Pair from DSH's Plugins page. Workspace folders and presets are edited there too.
+# Manual (headless) setups may instead set relayUrl + connectorTokenFile on this row.
 - insert:
     - id: dsh-remote
       name: '@dsh-remote/plugin'
-      config:
-        relayUrl: !!js process.env.DSH_REMOTE_RELAY_URL
-        connectorTokenFile: !!js process.env.DSH_REMOTE_CONNECTOR_TOKEN_FILE
-        connectorPath: !!js process.env.DSH_REMOTE_CONNECTOR_PATH
-        journalPath: !!js process.env.DSH_REMOTE_JOURNAL_PATH
-        bunPath: !!js process.env.DSH_REMOTE_BUN_PATH ?? 'bun'
-        allowedWorkspaceRoots: !!js JSON.parse(process.env.DSH_REMOTE_ALLOWED_ROOTS ?? '[]')

@@ -17,17 +17,11 @@ import {
 import {
   ArrowDown,
   ArrowRight,
-  ArrowUpRight,
-  ChevronRight,
   Clipboard,
-  Command as CommandIcon,
-  Cpu,
   FileText,
   Globe2,
   KeyRound,
   Layers3,
-  Loader2,
-  LogOut,
   MessageSquare,
   Monitor,
   Radio,
@@ -86,8 +80,10 @@ import { RepositoryPanel } from './repository-panel';
 import { getReferences, contextPreview, repositoryIdsForPrompt } from './repositories';
 import { readDraft, saveDraft } from './drafts';
 import { OperationsProvider, RecoveryPanel, useOperations } from './operations';
+import { PairInstance, PairingLanding, PairingPanel, requestPairing, type Pairing } from './pairing';
 import './styles.css';
 const THEME_KEY = 'dsh.appearance';
+const NEW_INSTANCE = '__new_instance__';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -123,13 +119,15 @@ const Brand = () => (
   </div>
 );
 function App() {
+  if (location.pathname.startsWith('/pair/')) return <PairingLanding />;
+  return <SignedInApp />;
+}
+function SignedInApp() {
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<Identity>('/api/me'), retry: false });
   if (me.isPending)
     return (
-      <main className="boot">
-        <Brand />
+      <main className="boot" aria-label="正在连接">
         <Spinner />
-        <p>正在连接控制台…</p>
       </main>
     );
   if (!me.data)
@@ -184,165 +182,106 @@ function Auth({ error }: { error: unknown }) {
   });
   return (
     <main className="auth-page">
-      <section className="auth-story">
+      <form
+        className="auth-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          mutation.mutate();
+        }}
+      >
         <Brand />
-        <div className="auth-hero">
-          <span className="eyebrow">YOUR AGENTS. WITHIN REACH.</span>
-          <h1>
-            工作在继续
-            <br />
-            控制，随你而行<span>。</span>
-          </h1>
-          <p>
-            一个安全的入口，连接每一台 DSH 实例
-            <br />
-            让终端、浏览器与手机保持同步
-          </p>
-          <div className="connection-art" aria-hidden="true">
-            <div>
-              <Terminal />
-              <span>DSH 实例</span>
-            </div>
-            <i />
-            <div className="hub">
-              <Globe2 />
-              <span>REMOTE</span>
-            </div>
-            <i />
-            <div>
-              <Monitor />
-              <span>控制设备</span>
-            </div>
-          </div>
-          <div className="story-points">
-            <span>
-              <ShieldCheck size={17} /> 出站连接
-            </span>
-            <span>
-              <Layers3 size={17} /> 多实例隔离
-            </span>
-            <span>
-              <KeyRound size={17} /> 单一写入租约
-            </span>
-          </div>
-        </div>
-        <footer>
-          DSH REMOTE <span>开源 · 自托管 · 为协作而生</span>
-        </footer>
-      </section>
-      <section className="auth-form-wrap">
-        <form
-          className="auth-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            mutation.mutate();
-          }}
-        >
-          <span className="eyebrow">CONTROL CENTER</span>
-          <h2>{register ? '建立你的工作空间' : '欢迎回来'}</h2>
-          <p>
-            {register ? '创建账户，安全地连接你的第一台实例' : '登录以继续管理你的 DSH 工作空间'}
-          </p>
-          <label>
-            邮箱
-            <input
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-            />
-          </label>
-          <label>
-            密码
-            <input
-              type="password"
-              minLength={8}
-              autoComplete={register ? 'new-password' : 'current-password'}
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={register ? '至少 8 个字符' : '输入你的密码'}
-            />
-          </label>
-          <label>
-            当前设备名称
+        <h1 key={register ? 'register' : 'login'} className="swap">
+          {register ? '创建账户' : '登录'}
+        </h1>
+        <label>
+          邮箱
+          <input
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+          />
+        </label>
+        <label>
+          密码
+          <input
+            type="password"
+            minLength={8}
+            autoComplete={register ? 'new-password' : 'current-password'}
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder={register ? '至少 8 个字符' : ''}
+          />
+        </label>
+        <label>
+          设备名称
+          <input
+            required
+            maxLength={80}
+            value={deviceName}
+            onChange={(e) => setDeviceName(e.target.value)}
+            autoComplete="off"
+          />
+        </label>
+        {register && registration === 'invite' && (
+          <label className="swap">
+            邀请码
             <input
               required
-              maxLength={80}
-              value={deviceName}
-              onChange={(e) => setDeviceName(e.target.value)}
+              maxLength={200}
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
               autoComplete="off"
             />
           </label>
-          {register && registration === 'invite' && (
-            <label>
-              邀请码
-              <input
-                required
-                maxLength={200}
-                value={inviteCode}
-                onChange={(e) => setInviteCode(e.target.value)}
-                autoComplete="off"
-                placeholder="向管理员索取"
-              />
-            </label>
-          )}
-          <Err error={mutation.error || error} />
-          <button className="primary wide" disabled={mutation.isPending}>
+        )}
+        <Err error={mutation.error || error} />
+        <div className="actions">
+          <button className="primary" disabled={mutation.isPending}>
             {mutation.isPending ? <Spinner /> : null}
-            {register ? '创建账户' : '登录控制台'}
-            <ArrowRight size={17} />
+            {register ? '创建账户' : '登录'}
           </button>
-          {mutation.isPending && (
+          {mutation.isPending ? (
             <button
-              className="quiet wide"
+              className="text-button"
               type="button"
               onClick={() => {
                 authAttempt.current += 1;
                 authAbort.current?.abort();
-                setAuthNotice('已停止等待。登录或注册可能已在服务端完成，可查询当前登录状态');
+                setAuthNotice('已停止等待。登录或注册可能已在服务端完成');
               }}
             >
-              停止等待登录
+              停止等待
             </button>
-          )}
-          {authNotice && (
-            <div className="notice" role="status">
-              {authNotice}
-              <button
-                type="button"
-                className="text-button"
-                onClick={() => void client.invalidateQueries({ queryKey: ['me'] })}
-              >
-                查询登录状态
-              </button>
-            </div>
-          )}
-          {registration === 'closed' && !register ? (
-            <p className="auth-switch">此部署未开放注册，账户由管理员开通</p>
-          ) : (
-            <p className="auth-switch">
-              {register ? '已经有账户？' : '第一次使用？'}{' '}
-              <button
-                type="button"
-                className="text-button"
-                disabled={mutation.isPending}
-                onClick={() => {
-                  setRegister(!register);
-                  mutation.reset();
-                }}
-              >
-                {register ? '登录' : '创建账户'}
-              </button>
-            </p>
-          )}
-          <div className="secure-note">
-            <ShieldCheck size={15} /> 登录凭据使用 HttpOnly Cookie 保管
+          ) : registration !== 'closed' || register ? (
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                setRegister(!register);
+                mutation.reset();
+              }}
+            >
+              {register ? '已有账户，登录' : '创建账户'}
+            </button>
+          ) : null}
+        </div>
+        {authNotice && (
+          <div className="notice swap" role="status">
+            {authNotice}
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => void client.invalidateQueries({ queryKey: ['me'] })}
+            >
+              查询登录状态
+            </button>
           </div>
-        </form>
-      </section>
+        )}
+      </form>
     </main>
   );
 }
@@ -352,11 +291,19 @@ function Console({ identity }: { identity: Identity }) {
     search = indexRoute.useSearch(),
     [mobileMenu, setMobileMenu] = useState(false),
     [modal, setModal] = useState<
-      'instance' | 'devices' | 'session' | 'takeover' | 'rotate' | 'status' | 'settings' | null
+      | 'instance'
+      | 'devices'
+      | 'session'
+      | 'takeover'
+      | 'rotate'
+      | 'status'
+      | 'settings'
+      | 'pair'
+      | null
     >(null),
     [notice, setNotice] = useState(''),
     [clock, setClock] = useState(Date.now()),
-    [tab, setTab] = useState<'conversation' | 'events' | 'repositories'>('conversation'),
+    [tab, setTab] = useState<'conversation' | 'repositories'>('conversation'),
     [writeSuspended, setWriteSuspended] = useState(false),
     [theme, setTheme] = useState<'system' | 'light' | 'dark'>(() => {
       try {
@@ -562,6 +509,41 @@ function Console({ identity }: { identity: Identity }) {
     }, 10000);
     return () => clearInterval(timer);
   }, [holding, id, identity.controller.id, client]);
+  const streamLive = eventStream.state === 'live',
+    latencyMs = eventStream.health.latencyMs,
+    retryIn = eventStream.health.nextRetryAt
+      ? Math.max(0, Math.ceil((eventStream.health.nextRetryAt - clock) / 1000))
+      : 0,
+    statusText = !instance
+      ? ''
+      : streamLive
+        ? `${statusLabel(instance)}${latencyMs !== undefined && online ? ` · ${latencyMs} ms` : ''}`
+        : eventStream.state === 'offline'
+          ? '网络离线'
+          : retryIn
+            ? `重连中 · ${retryIn}s`
+            : '重连中',
+    statusKey = streamLive && instance ? instanceStatus(instance) : eventStream.state,
+    controlState: 'pending' | 'held' | 'occupied' | 'acquire' = leaseMutation.isPending
+      ? 'pending'
+      : holding
+        ? 'held'
+        : occupied
+          ? 'occupied'
+          : lease?.pending && lease.controllerId === identity.controller.id
+            ? 'pending'
+            : 'acquire';
+  // Session resumption: after a brief drop, renew the lease this device still holds instead of
+  // asking the user to take control again. Another device's takeover is never overridden.
+  const resumedLease = useRef('');
+  useEffect(() => {
+    if (!writeSuspended || !streamLive || !online || !id || leaseMutation.isPending) return;
+    if (lease?.controllerId !== identity.controller.id || !leaseActive(lease, Date.now())) return;
+    const key = `${id}:${lease.epoch}`;
+    if (resumedLease.current === key) return;
+    resumedLease.current = key;
+    leaseMutation.mutate({}, { onSuccess: () => setNotice('连接已恢复') });
+  }, [writeSuspended, streamLive, online, id, lease?.controllerId, lease?.epoch, lease?.expiresAt]);
   const leaseHolder = leaseActive(lease, clock) ? lease?.controllerId : undefined,
     previousHolder = useRef({ id, holder: leaseHolder });
   useEffect(() => {
@@ -579,7 +561,7 @@ function Console({ identity }: { identity: Identity }) {
       setNotice('控制权已被其他设备接管，当前为只读模式');
   }, [id, leaseHolder]);
   return (
-    <div className="shell">
+    <div className="shell" data-stream={eventStream.state}>
       <aside className={`sidebar ${mobileMenu ? 'open' : ''}`}>
         <div className="sidebar-brand">
           <Brand />
@@ -591,15 +573,14 @@ function Console({ identity }: { identity: Identity }) {
             <X size={18} />
           </button>
         </div>
-        <div className="workspace-label">
-          工作空间 <span>PERSONAL</span>
-        </div>
-        <div className="instance-picker">
-          <Cpu size={18} />
+        <label className="instance-picker">
+          <span className={`status-dot ${instance ? instanceStatus(instance) : ''}`} />
           <select
             aria-label="选择实例"
             value={id ?? ''}
-            onChange={(e) => switchInstance(e.target.value)}
+            onChange={(e) =>
+              e.target.value === NEW_INSTANCE ? setModal('instance') : switchInstance(e.target.value)
+            }
           >
             <option value="" disabled>
               选择实例
@@ -607,64 +588,37 @@ function Console({ identity }: { identity: Identity }) {
             {instances.data?.instances.map((i) => (
               <option key={i.id} value={i.id}>
                 {i.name}
-                {' · ' + statusLabel(i)}
               </option>
             ))}
+            <option value={NEW_INSTANCE}>＋ 连接新实例</option>
           </select>
           <ChevronDown size={15} />
-        </div>
-        <button className="sidebar-action" onClick={() => setModal('instance')}>
-          <Plus size={16} /> 连接新实例
-          <ArrowUpRight size={14} />
-        </button>
+        </label>
         <button
-          className="sidebar-action"
-          onClick={() => {
-            setModal('status');
-            setMobileMenu(false);
-          }}
-          disabled={!instance}
-        >
-          <Cpu size={16} />
-          实例状态
-        </button>
-        <button
-          className="sidebar-action"
+          className={`sidebar-link ${tab === 'repositories' ? 'selected' : ''}`}
           onClick={() => {
             setTab('repositories');
             setMobileMenu(false);
           }}
         >
-          <Layers3 size={16} />
           GitHub 仓库
         </button>
-        <div className="sidebar-divider" />
         <div className="section-label">
-          <span>
-            会话 <em>{sessions.data?.length ?? 0}</em>
-          </span>
+          <span>会话</span>
           <button
             className="icon-button"
-            title="刷新会话"
-            aria-label="刷新会话"
-            disabled={!online || sessions.isFetching}
-            onClick={() => void sessions.refetch()}
+            aria-label="新建会话"
+            title={holding ? '新建会话' : '获取控制权后可新建会话'}
+            disabled={!online || !holding}
+            onClick={() => setModal('session')}
           >
-            <RefreshCw size={14} className={sessions.isFetching ? 'spin' : ''} />
+            <Plus size={16} />
           </button>
         </div>
-        <button
-          className="new-session"
-          disabled={!online || !holding}
-          onClick={() => setModal('session')}
-        >
-          <Plus size={17} /> 新建会话<kbd>NEW</kbd>
-        </button>
-        {!holding && online && <p className="tiny sidebar-hint">获取控制权后可创建和发送消息</p>}
         <nav className="session-list" aria-label="会话列表">
           {sessions.isPending && online ? (
             <div className="subtle-loading">
-              <Spinner /> 读取会话…
+              <Spinner />
             </div>
           ) : sessions.error ? (
             <Err error={sessions.error} />
@@ -672,67 +626,42 @@ function Console({ identity }: { identity: Identity }) {
             sessions.data.map((s) => (
               <button
                 key={s.sessionId}
-                className={`session-link ${sessionId === s.sessionId ? 'selected' : ''}`}
+                className={`session-link ${sessionId === s.sessionId && tab !== 'repositories' ? 'selected' : ''}`}
                 onClick={() => selectSession(s.sessionId)}
               >
-                <MessageSquare size={16} />
-                <span>
-                  <strong>{sessionLabel(s)}</strong>
-                  <small>
-                    {s.running
-                      ? '正在运行'
-                      : s.updatedAt
-                        ? new Date(s.updatedAt).toLocaleString('zh-CN', {
-                            month: '2-digit',
-                            day: '2-digit',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
-                        : '已保存的会话'}
-                  </small>
-                </span>
-                {s.running && <span className="status-dot pulse" />}
+                <strong>{sessionLabel(s)}</strong>
+                <small>
+                  {s.running
+                    ? '运行中'
+                    : s.updatedAt
+                      ? new Date(s.updatedAt).toLocaleString('zh-CN', {
+                          month: '2-digit',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : ''}
+                </small>
               </button>
             ))
           ) : (
-            <div className="sidebar-empty">
-              {online ? '暂无会话，从一个新任务开始' : '连接实例后查看会话'}
-            </div>
+            <p className="sidebar-empty">{online ? '暂无会话' : '实例离线'}</p>
           )}
         </nav>
-        <div className="sidebar-bottom">
-          <button
-            onClick={() => {
-              setModal('settings');
-              setMobileMenu(false);
-            }}
-          >
-            <Settings2 size={17} />
-            <span>设置</span>
-          </button>
-          <button onClick={() => setModal('devices')}>
-            <Monitor size={17} />
-            <span>控制设备</span>
-            <span className="counter">{controllers.data?.controllers.length ?? '—'}</span>
-          </button>
-          <div className="account">
-            <span className="avatar">{identity.user.email[0]?.toUpperCase()}</span>
-            <span>
-              <strong>{identity.user.email}</strong>
-              <small>{identity.controller.name}</small>
-            </span>
-            <button
-              className="icon-button"
-              aria-label="退出登录"
-              title="退出登录"
-              onClick={() => logout.mutate()}
-              disabled={logout.isPending}
-            >
-              <LogOut size={16} />
-            </button>
-          </div>
-          <Err error={logout.error} />
-        </div>
+        <button
+          className="account"
+          aria-label="账户与设置"
+          onClick={() => {
+            setModal('settings');
+            setMobileMenu(false);
+          }}
+        >
+          <span className="avatar">{identity.user.email[0]?.toUpperCase()}</span>
+          <span>
+            <strong>{identity.user.email}</strong>
+            <small>{identity.controller.name}</small>
+          </span>
+        </button>
       </aside>
       {mobileMenu && (
         <button
@@ -751,34 +680,69 @@ function Console({ identity }: { identity: Identity }) {
           >
             <Menu size={20} />
           </button>
-          <div className="breadcrumbs">
-            <span>控制台</span>
-            <ChevronRight size={13} />
-            <strong>{instance?.name ?? '工作空间'}</strong>
-          </div>
-          {instance && (
-            <button
-              className="icon-button"
-              aria-label="实例连接凭据"
-              title="实例连接凭据"
-              onClick={() => setModal('rotate')}
-            >
-              <KeyRound size={16} />
-            </button>
-          )}
-          <div className={`stream-status ${eventStream.state === 'live' ? 'good' : ''}`}>
-            <span className="status-dot" />
-            {eventStream.state === 'live'
-              ? '实时同步'
-              : eventStream.state === 'offline'
-                ? '网络离线'
-                : eventStream.state === 'reconnecting'
-                  ? '正在重连'
-                  : '正在连接'}
-          </div>
+          {instance ? (
+            <>
+              <h1 className="instance-title">{instance.name}</h1>
+              <button
+                className={`status-button ${streamLive ? instanceStatus(instance) : 'connecting'}`}
+                onClick={() => (streamLive ? setModal('status') : eventStream.retry())}
+                aria-label={streamLive ? `实例状态：${statusText}` : `${statusText}，点击立即重连`}
+              >
+                <span className={`status-dot ${streamLive ? '' : 'pulse-warn'}`} />
+                <span key={statusKey} className="swap">
+                  {statusText}
+                </span>
+              </button>
+              <div className="control">
+                {occupied && (
+                  <span className="control-note swap">{controllerName(lease?.controllerId)} 控制中</span>
+                )}
+                <button
+                  className={`control-button ${controlState}`}
+                  disabled={leaseMutation.isPending || !online || eventStream.state !== 'live'}
+                  title={
+                    holding
+                      ? `${Math.max(0, Math.ceil((new Date(lease!.expiresAt).getTime() - clock) / 1000))}s 后自动续期`
+                      : undefined
+                  }
+                  aria-label={holding ? '控制中，点击释放' : undefined}
+                  onClick={() =>
+                    holding
+                      ? leaseMutation.mutate({ release: true })
+                      : occupied
+                        ? setModal('takeover')
+                        : leaseMutation.mutate({})
+                  }
+                >
+                  {controlState === 'pending' ? (
+                    <span className="swap" key="pending">
+                      <Spinner />
+                      确认中
+                    </span>
+                  ) : controlState === 'held' ? (
+                    <span className="swap held" key="held">
+                      <span className="held-label">
+                        <Check size={14} />
+                        控制中
+                      </span>
+                      <span className="release-label">释放</span>
+                    </span>
+                  ) : controlState === 'occupied' ? (
+                    <span className="swap" key="occupied">
+                      接管
+                    </span>
+                  ) : (
+                    <span className="swap" key="acquire">
+                      获取控制权
+                    </span>
+                  )}
+                </button>
+              </div>
+            </>
+          ) : null}
         </header>
         {notice && (
-          <div className="notice" role="status">
+          <div className="notice swap" role="status">
             {notice}
             <button className="icon-button" onClick={() => setNotice('')} aria-label="关闭提示">
               <X size={15} />
@@ -788,219 +752,48 @@ function Console({ identity }: { identity: Identity }) {
         <Err error={instances.error} />
         {instance ? (
           <>
-            <section className="instance-head">
-              <div>
-                <div className="eyebrow">INSTANCE WORKSPACE</div>
-                <h1>
-                  {instance.name}
-                  <span className={`pill ${online ? 'online' : ''}`}>
-                    <span className="status-dot" />
-                    {statusLabel(instance)}
-                  </span>
-                </h1>
-                <p>你的 DSH 会话、运行状态与控制权，尽在此处</p>
-              </div>
-              <div className="lease-card">
-                <div className={`lease-icon ${holding ? 'owned' : ''}`}>
-                  {holding ? <KeyRound size={20} /> : <Shield size={20} />}
-                </div>
-                <div>
-                  <strong>
-                    {holding
-                      ? '你拥有控制权'
-                      : occupied
-                        ? '当前为只读模式'
-                        : lease?.pending
-                          ? '等待控制权确认'
-                          : '可获取控制权'}
-                  </strong>
-                  <small>
-                    {holding
-                      ? `${identity.controller.name} · ${Math.max(0, Math.ceil((new Date(lease!.expiresAt).getTime() - clock) / 1000))}s 后续期 / 到期`
-                      : occupied
-                        ? `${controllerName(lease?.controllerId)} 正在控制`
-                        : '其他设备可同时查看会话'}
-                  </small>
-                </div>
-                <button
-                  className={holding ? 'quiet' : 'primary small'}
-                  disabled={leaseMutation.isPending || !online || eventStream.state !== 'live'}
-                  onClick={() =>
-                    holding
-                      ? leaseMutation.mutate({ release: true })
-                      : occupied
-                        ? setModal('takeover')
-                        : leaseMutation.mutate({})
-                  }
-                >
-                  {leaseMutation.isPending ? (
-                    <Spinner />
-                  ) : holding ? (
-                    '释放'
-                  ) : occupied ? (
-                    '接管'
-                  ) : (
-                    '获取控制权'
-                  )}
-                </button>
-              </div>
-            </section>
             <RecoveryPanel instanceId={id} />
-            <div className="content-grid">
-              <section className="conversation-panel">
-                <div className="panel-tabs">
-                  <div>
-                    <button
-                      className={tab === 'conversation' ? 'active' : ''}
-                      onClick={() => setTab('conversation')}
-                    >
-                      <MessageSquare size={16} /> 会话
-                    </button>
-                    <button
-                      className={tab === 'events' ? 'active' : ''}
-                      onClick={() => setTab('events')}
-                    >
-                      <Radio size={16} /> 实时事件 <span>{events.length}</span>
+            <section className="conversation-panel">
+              {tab === 'repositories' ? (
+                <RepositoryPanel
+                  key={id ?? 'none'}
+                  instance={instance}
+                  controller={identity.controller}
+                  lease={holding ? lease! : null}
+                  onClose={() => setTab('conversation')}
+                />
+              ) : sessionId ? (
+                <Session
+                  key={`${id}:${sessionId}`}
+                  id={id!}
+                  sessionId={sessionId}
+                  controller={identity.controller}
+                  lease={holding ? lease! : null}
+                  online={online}
+                  events={events}
+                  approvals={eventStream.approvals.filter(
+                    (a) => a.instanceId === id && a.sessionId === sessionId,
+                  )}
+                  stream={eventStream.streams[`${id}:${sessionId}`]}
+                  summary={selected}
+                  notify={setNotice}
+                />
+              ) : online ? (
+                <div className="empty-state swap">
+                  <h2>{holding ? '选择或新建会话' : '选择一个会话'}</h2>
+                </div>
+              ) : (
+                <div className="empty-state swap">
+                  <h2>等待实例上线</h2>
+                  <p>在 DSH 的插件页安装 DSH Remote，再用配对链接连接这台实例。</p>
+                  <div className="actions">
+                    <button className="primary" onClick={() => setModal('pair')}>
+                      配对
                     </button>
                   </div>
-                  <span className="session-indicator">
-                    {selected?.running ? (
-                      <>
-                        <span className="status-dot pulse" />
-                        运行中
-                      </>
-                    ) : sessionId ? (
-                      '会话已选择'
-                    ) : (
-                      '等待选择会话'
-                    )}
-                  </span>
                 </div>
-                {tab === 'repositories' ? (
-                  <RepositoryPanel
-                    key={id ?? 'none'}
-                    instance={instance}
-                    controller={identity.controller}
-                    lease={holding ? lease! : null}
-                    onClose={() => setTab('conversation')}
-                  />
-                ) : tab === 'events' ? (
-                  <EventLog events={events} />
-                ) : sessionId ? (
-                  <Session
-                    key={`${id}:${sessionId}`}
-                    id={id!}
-                    sessionId={sessionId}
-                    controller={identity.controller}
-                    lease={holding ? lease! : null}
-                    online={online}
-                    events={events}
-                    approvals={eventStream.approvals.filter(
-                      (a) => a.instanceId === id && a.sessionId === sessionId,
-                    )}
-                    stream={eventStream.streams[`${id}:${sessionId}`]}
-                    summary={selected}
-                    notify={setNotice}
-                  />
-                ) : (
-                  <div className="choose-session">
-                    <div className="hero-glyph">
-                      <CommandIcon size={33} />
-                    </div>
-                    {online ? (
-                      <>
-                        <span className="eyebrow">READY WHEN YOU ARE</span>
-                        <h2>接下来，做点什么？</h2>
-                        <p>
-                          选择左侧会话，查看 DSH 的工作进展
-                          <br />
-                          {holding
-                            ? '或创建一个新会话，开始你的下一个任务'
-                            : '获取控制权后，可以创建新会话并发送消息'}
-                        </p>
-                        <button
-                          className="primary"
-                          disabled={!holding}
-                          onClick={() => setModal('session')}
-                        >
-                          <Plus size={17} />
-                          新建会话
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <span className="eyebrow">WAITING FOR CONNECTOR</span>
-                        <h2>等待实例上线</h2>
-                        <p>
-                          这台实例尚未连接到中继
-                          <br />
-                          在运行 DSH 的机器上配置出站 Connector 后会自动上线
-                        </p>
-                        <button className="primary" onClick={() => setModal('status')}>
-                          查看实例状态
-                        </button>
-                      </>
-                    )}
-                    <div className="empty-features">
-                      <span>
-                        <MessageSquare size={18} /> 持续对话
-                      </span>
-                      <span>
-                        <Zap size={18} /> 实时反馈
-                      </span>
-                      <span>
-                        <ShieldCheck size={18} /> 安全协作
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </section>
-              <aside className="inspector">
-                <div className="section-label">
-                  实例概览
-                  <Cpu size={16} />
-                </div>
-                <div className="info-block">
-                  <label>连接状态</label>
-                  <strong>
-                    <span className={`status-dot ${online ? 'green' : ''}`} />
-                    {online ? 'Connector 已连接' : '等待 Connector 连接'}
-                  </strong>
-                </div>
-                <div className="info-block">
-                  <label>实例标识</label>
-                  <code>{id}</code>
-                </div>
-                <div className="info-block">
-                  <label>当前设备</label>
-                  <strong>{identity.controller.name}</strong>
-                  <small>{identity.controller.id.slice(0, 18)}</small>
-                </div>
-                <div className="info-block">
-                  <label>写入租约</label>
-                  <strong>
-                    {holding
-                      ? '本设备'
-                      : occupied
-                        ? controllerName(lease?.controllerId)
-                        : '暂无持有者'}
-                  </strong>
-                  <small>
-                    {leaseActive(lease, clock)
-                      ? `Epoch ${lease?.epoch} · 到期自动释放`
-                      : '每台实例同时仅一个设备可写入'}
-                  </small>
-                </div>
-                <div className="inspector-note">
-                  <ShieldCheck size={19} />
-                  <strong>协作，无需抢占</strong>
-                  <p>查看会话不会改变 DSH 状态。发送消息、审批和配置操作需要有效的控制租约</p>
-                </div>
-                <div className="inspector-footer">
-                  <Globe2 size={15} /> 出站连接 · 无需暴露 DSH 端口
-                </div>
-              </aside>
-            </div>
+              )}
+            </section>
           </>
         ) : tab === 'repositories' ? (
           <RepositoryPanel
@@ -1010,26 +803,23 @@ function Console({ identity }: { identity: Identity }) {
             onClose={() => setTab('conversation')}
           />
         ) : (
-          <div className="welcome">
-            <div className="hero-glyph">
-              <Cpu size={34} />
-            </div>
-            <span className="eyebrow">YOUR WORKSPACE STARTS HERE</span>
+          <div className="empty-state welcome swap">
             <h1>{search.instance ? '未找到此实例' : '连接你的第一台 DSH'}</h1>
             <p>
               {search.instance
-                ? '实例可能不存在，或当前账户没有访问权限'
-                : '注册一个实例，然后在运行 DSH 的机器上配置出站 Connector'}
+                ? '实例可能不存在，或当前账户没有访问权限。'
+                : '添加实例后，用配对链接把运行 DSH 的电脑连接进来。'}
             </p>
-            <button className="primary" onClick={() => setModal('instance')}>
-              <Plus size={17} />
-              连接新实例
-            </button>
+            <div className="actions">
+              <button className="primary" onClick={() => setModal('instance')}>
+                连接新实例
+              </button>
+            </div>
           </div>
         )}
       </main>
       {modal === 'settings' && (
-        <Modal title="设置" onClose={() => setModal(null)} description="外观与此设备设置">
+        <Modal title="设置" onClose={() => setModal(null)} busy={logout.isPending}>
           <label>
             外观
             <select
@@ -1043,55 +833,57 @@ function Console({ identity }: { identity: Identity }) {
               <option value="dark">深色</option>
             </select>
           </label>
+          <Err error={logout.error} />
           <div className="modal-actions">
-            <button className="quiet" onClick={() => setModal('devices')}>
-              管理控制设备
-            </button>
             <button className="primary" onClick={() => setModal(null)}>
               完成
+            </button>
+            <button className="quiet" onClick={() => setModal('devices')}>
+              控制设备
+            </button>
+            <button className="quiet" disabled={logout.isPending} onClick={() => logout.mutate()}>
+              退出登录
             </button>
           </div>
         </Modal>
       )}
       {modal === 'status' && instance && (
-        <Modal
-          title={`${instance.name} · 实例状态`}
-          onClose={() => setModal(null)}
-          description="以下时间是服务端最近观测。过期状态不能用于写入"
-        >
-          <div className="instance-status-details">
-            <p>
-              <strong>{statusLabel(instance)}</strong> ·{' '}
-              {eventStream.state === 'live' ? '观察流已同步' : '观察流尚未同步'}
-            </p>
-            <p>最近心跳：{timeLabel(instance.lastSeenAt)}</p>
-            <p>连接时间：{timeLabel(instance.connectedAt)}</p>
-            <p>断开时间：{timeLabel(instance.disconnectedAt)}</p>
-            <p>状态观测：{timeLabel(instance.observedAt)}</p>
-            <p>
-              实例 ID：<code>{instance.id}</code>
-            </p>
-            <p>连接代次：{instance.connectionEpoch ?? '未知'}</p>
-            <p>
-              写入设备：{leaseActive(lease) ? controllerName(lease?.controllerId) : '暂无'}
-              {lease?.pending ? ' · 等待主机确认' : ''}
-            </p>
-          </div>
+        <Modal title={instance.name} onClose={() => setModal(null)}>
+          <dl className="facts">
+            <dt>状态</dt>
+            <dd>{statusLabel(instance)}</dd>
+            <dt>中继延迟</dt>
+            <dd>{latencyMs !== undefined ? `${latencyMs} ms` : '—'}</dd>
+            <dt>最近心跳</dt>
+            <dd>{timeLabel(instance.lastSeenAt)}</dd>
+            <dt>连接于</dt>
+            <dd>{timeLabel(instance.connectedAt)}</dd>
+            <dt>断开于</dt>
+            <dd>{timeLabel(instance.disconnectedAt)}</dd>
+            <dt>控制设备</dt>
+            <dd>
+              {leaseActive(lease) ? controllerName(lease?.controllerId) : '无'}
+              {lease?.pending ? '（等待主机确认）' : ''}
+            </dd>
+            <dt>实例 ID</dt>
+            <dd>
+              <code>{instance.id}</code>
+            </dd>
+          </dl>
+          <details className="event-details">
+            <summary>事件 {events.length}</summary>
+            <EventLog events={events} />
+          </details>
           <Err error={instances.error} />
           <div className="modal-actions">
-            <button
-              className="quiet"
-              disabled={instances.isFetching}
-              onClick={() => void instances.refetch()}
-            >
-              <RefreshCw size={15} />
-              刷新实例状态
+            <button className="primary" onClick={() => setModal(null)}>
+              完成
+            </button>
+            <button className="quiet" onClick={() => setModal('pair')}>
+              重新配对
             </button>
             <button className="quiet" onClick={() => setModal('rotate')}>
-              连接凭据
-            </button>
-            <button className="primary" onClick={() => setModal(null)}>
-              返回
+              更换令牌
             </button>
           </div>
         </Modal>
@@ -1110,22 +902,25 @@ function Console({ identity }: { identity: Identity }) {
       {modal === 'rotate' && instance && (
         <RotateCredential instance={instance} onClose={() => setModal(null)} />
       )}
+      {modal === 'pair' && instance && (
+        <PairInstance instance={instance} onClose={() => setModal(null)} />
+      )}
       {modal === 'takeover' && (
         <Modal
-          title="接管这个实例？"
-          description={`${controllerName(lease?.controllerId)} 将立即失去写入权限，仍可查看会话。正在运行的 DSH 任务不会因此取消`}
+          title="接管控制权？"
+          description={`${controllerName(lease?.controllerId)} 将变为只读。正在运行的任务不会被取消。`}
           onClose={() => setModal(null)}
         >
           <div className="modal-actions">
-            <button className="quiet" onClick={() => setModal(null)}>
-              保持只读
-            </button>
             <button
               className="primary"
               onClick={() => leaseMutation.mutate({ takeover: true })}
               disabled={leaseMutation.isPending}
             >
-              {leaseMutation.isPending ? <Spinner /> : <KeyRound size={16} />}确认接管
+              {leaseMutation.isPending ? <Spinner /> : null}接管
+            </button>
+            <button className="quiet" onClick={() => setModal(null)}>
+              取消
             </button>
           </div>
         </Modal>
@@ -1181,40 +976,38 @@ function Devices({
       title={target ? '撤销设备登录？' : '控制设备'}
       description={
         target
-          ? `${target.name} 的所有登录会话和写入租约将立即失效。${target.id === currentId ? '这是当前设备，确认后你将退出登录。' : '该设备需要重新登录才能访问。'}`
-          : '每次登录建立独立设备身份。撤销后需要重新登录'
+          ? `${target.name} 将立即退出登录并失去控制权。${target.id === currentId ? '这是当前设备。' : ''}`
+          : undefined
       }
       onClose={onClose}
       busy={mutation.isPending}
     >
       {target ? (
         <div className="modal-actions">
-          <button className="quiet" disabled={mutation.isPending} onClick={() => setTarget(null)}>
-            取消
-          </button>
           <button
             className="primary"
             disabled={mutation.isPending}
             onClick={() => mutation.mutate(target)}
           >
-            {mutation.isPending ? <Spinner /> : <Shield size={16} />}确认撤销
+            {mutation.isPending ? <Spinner /> : null}撤销
+          </button>
+          <button className="quiet" disabled={mutation.isPending} onClick={() => setTarget(null)}>
+            取消
           </button>
         </div>
       ) : (
         <div className="device-list">
           {controllers.map((c) => (
-            <div key={c.id}>
-              <Monitor size={20} />
+            <div key={c.id} className={c.active === false || revoked.includes(c.id) ? 'inactive' : ''}>
               <span>
                 <strong>{c.name}</strong>
-                <small>{c.id}</small>
                 {c.id === currentId && <small>当前设备</small>}
               </span>
               {c.active === false || revoked.includes(c.id) ? (
-                <span className="pill">登录已失效</span>
+                <small className="swap">已失效</small>
               ) : (
-                <button className="quiet" onClick={() => setTarget(c)}>
-                  撤销登录
+                <button className="text-button" onClick={() => setTarget(c)}>
+                  撤销
                 </button>
               )}
             </div>
@@ -1242,11 +1035,11 @@ function RotateCredential({ instance, onClose }: { instance: Instance; onClose: 
   });
   return (
     <Modal
-      title={token ? '新的连接令牌' : '更换 Connector 凭据？'}
+      title={token ? '新的连接令牌' : '更换连接令牌？'}
       description={
         token
-          ? '新令牌只显示这一次，请安全保存'
-          : `更换 ${instance.name} 的令牌会立即断开现有 Connector 并释放控制权。你需要在 DSH 主机更新令牌文件后重新连接`
+          ? '令牌只显示这一次。'
+          : `${instance.name} 会立即断开并释放控制权，需在 DSH 主机更新令牌后重新连接。`
       }
       onClose={onClose}
       busy={mutation.isPending}
@@ -1257,11 +1050,10 @@ function RotateCredential({ instance, onClose }: { instance: Instance; onClose: 
             Connector 令牌
             <textarea readOnly rows={3} value={token} />
           </label>
-          <p className="tiny">
-            保存到主机权限 0600 的令牌文件，父目录权限 0700。插件只配置 connectorTokenFile
-            绝对路径，不能内嵌令牌
-          </p>
           <div className="modal-actions">
+            <button className="primary" onClick={onClose}>
+              完成
+            </button>
             <button
               className="quiet"
               onClick={() => {
@@ -1271,24 +1063,24 @@ function RotateCredential({ instance, onClose }: { instance: Instance; onClose: 
                   .catch(() => setCopied(false));
               }}
             >
-              {copied ? <Check size={16} /> : <Clipboard size={16} />}复制令牌
-            </button>
-            <button className="primary" onClick={onClose}>
-              我已保存
+              <span key={copied ? 'done' : 'copy'} className="swap">
+                {copied ? <Check size={16} /> : <Clipboard size={16} />}
+              </span>
+              复制令牌
             </button>
           </div>
         </>
       ) : (
         <div className="modal-actions">
-          <button className="quiet" onClick={onClose} disabled={mutation.isPending}>
-            取消
-          </button>
           <button
             className="primary"
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending}
           >
-            {mutation.isPending ? <Spinner /> : <KeyRound size={16} />}确认更换
+            {mutation.isPending ? <Spinner /> : null}更换
+          </button>
+          <button className="quiet" onClick={onClose} disabled={mutation.isPending}>
+            取消
           </button>
         </div>
       )}
@@ -1305,25 +1097,36 @@ function CreateInstance({
 }) {
   const [name, setName] = useState(''),
     [created, setCreated] = useState<{ instance: Instance; connectorToken: string } | null>(null),
+    [pairing, setPairing] = useState<Pairing | null>(null),
     [copied, setCopied] = useState(false),
     client = useQueryClient();
+  const instances = useQuery({
+    queryKey: ['instances'],
+    queryFn: () => api<{ instances: Instance[] }>('/api/instances'),
+    enabled: !!created,
+    refetchInterval: 3000,
+  });
+  const live = instances.data?.instances.find((i) => i.id === created?.instance.id);
+  const repair = useMutation({
+    mutationFn: () => requestPairing(created!.instance.id),
+    onSuccess: setPairing,
+  });
   const mutation = useMutation({
-    mutationFn: () =>
-      post<{ instance: Instance; connectorToken: string }>('/api/instances', { name }),
-    onSuccess: (data) => {
+    mutationFn: async () => {
+      const data = await post<{ instance: Instance; connectorToken: string }>('/api/instances', {
+        name,
+      });
       setCreated(data);
-      void client.invalidateQueries({ queryKey: ['instances'] });
+      // The instance exists even if no pairing code could be issued; the user can retry.
+      setPairing(await requestPairing(data.instance.id).catch(() => null));
+      return data;
     },
+    onSettled: () => void client.invalidateQueries({ queryKey: ['instances'] }),
   });
   return (
     <Modal
       busy={mutation.isPending}
-      title={created ? '实例已创建' : '连接新实例'}
-      description={
-        created
-          ? '保存一次性连接令牌，并在 DSH 主机上配置 Connector'
-          : '实例属于当前账户，与其他账户隔离'
-      }
+      title={created ? `连接 ${created.instance.name}` : '连接新实例'}
       onClose={() => {
         if (created) onCreated(created.instance.id);
         onClose();
@@ -1331,35 +1134,45 @@ function CreateInstance({
     >
       {created ? (
         <>
-          <div className="token-warning">
-            <KeyRound size={18} />
-            <p>连接令牌只显示这一次。它允许 Connector 代表此实例连接，请勿分享或提交到 Git</p>
-          </div>
-          <label>
-            实例 ID
-            <input readOnly value={created.instance.id} />
-          </label>
-          <label>
-            Connector 令牌
-            <textarea readOnly rows={3} value={created.connectorToken} />
-          </label>
-          <button
-            className="quiet wide"
-            onClick={() => {
-              navigator.clipboard
-                .writeText(created.connectorToken)
-                .then(() => setCopied(true))
-                .catch(() => setCopied(false));
-            }}
-          >
-            {copied ? <Check size={16} /> : <Clipboard size={16} />}{' '}
-            {copied ? '已复制令牌' : '复制连接令牌'}
-          </button>
-          <p className="tiny">
-            在 DSH 主机上将令牌保存到权限为 0600 的文件，父目录权限为 0700。在插件配置的
-            connectorTokenFile
-            中填写此文件的绝对路径，不要将令牌直接写入插件配置。具体安装步骤见仓库 README
-          </p>
+          {pairing ? (
+            <PairingPanel
+              pairing={pairing}
+              instance={live}
+              onRenew={() => repair.mutate()}
+              renewing={repair.isPending}
+            />
+          ) : (
+            <button
+              className="quiet wide"
+              onClick={() => repair.mutate()}
+              disabled={repair.isPending}
+            >
+              {repair.isPending ? <Spinner /> : <RefreshCw size={16} />}生成配对链接
+            </button>
+          )}
+          <Err error={repair.error} />
+          <details className="manual-token">
+            <summary>改用手动令牌</summary>
+            <p className="tiny">令牌只显示这一次，配对后会失效。不要分享或提交到 Git。</p>
+            <label>
+              Connector 令牌
+              <textarea readOnly rows={3} value={created.connectorToken} />
+            </label>
+            <button
+              className="quiet"
+              onClick={() => {
+                navigator.clipboard
+                  .writeText(created.connectorToken)
+                  .then(() => setCopied(true))
+                  .catch(() => setCopied(false));
+              }}
+            >
+              <span key={copied ? 'done' : 'copy'} className="swap">
+                {copied ? <Check size={16} /> : <Clipboard size={16} />}
+              </span>
+              复制令牌
+            </button>
+          </details>
           <div className="modal-actions">
             <button
               className="primary"
@@ -1368,8 +1181,7 @@ function CreateInstance({
                 onClose();
               }}
             >
-              我已保存，进入实例
-              <ArrowRight size={16} />
+              进入实例
             </button>
           </div>
         </>
@@ -1393,11 +1205,11 @@ function CreateInstance({
           </label>
           <Err error={mutation.error} />
           <div className="modal-actions">
+            <button className="primary" disabled={mutation.isPending}>
+              {mutation.isPending ? <Spinner /> : null}创建实例
+            </button>
             <button className="quiet" type="button" onClick={onClose} disabled={mutation.isPending}>
               取消
-            </button>
-            <button className="primary" disabled={mutation.isPending}>
-              {mutation.isPending ? <Spinner /> : <Plus size={16} />}创建实例
             </button>
           </div>
         </form>
@@ -1451,7 +1263,7 @@ function CreateSession({
     },
   });
   return (
-    <Modal title="新建会话" description="在选中实例上创建一个新的 DSH 会话" onClose={onClose}>
+    <Modal title="新建会话" onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -1459,23 +1271,22 @@ function CreateSession({
         }}
       >
         <label>
-          工作目录 <span className="optional">可选</span>
+          工作目录
           <input
             autoFocus
             value={cwd}
             onChange={(e) => setCwd(e.target.value)}
-            placeholder="留空使用 DSH 默认目录"
+            placeholder="默认：第一个允许的目录"
           />
         </label>
-        <p className="tiny">目录路径对应运行 DSH 的机器</p>
         <Err error={mutation.error} />
         <RecoveryPanel instanceId={instanceId} />
         <div className="modal-actions">
+          <button className="primary" disabled={!lease || mutation.isPending}>
+            {mutation.isPending ? <Spinner /> : null}创建会话
+          </button>
           <button type="button" className="quiet" onClick={onClose}>
             取消
-          </button>
-          <button className="primary" disabled={!lease || mutation.isPending}>
-            {mutation.isPending ? <Spinner /> : <Plus size={16} />}创建会话
           </button>
         </div>
       </form>
@@ -1765,23 +1576,9 @@ function Session({
   return (
     <>
       <div className="session-toolbar">
-        <div>
-          <strong>{summary ? sessionLabel(summary) : sessionId.slice(0, 20)}</strong>
-          <span>{summary?.cwd ?? String(asRecord(data.header).cwd ?? sessionId)}</span>
-        </div>
-        <button
-          className="icon-button"
-          title="刷新历史"
-          aria-label="刷新历史"
-          onClick={() => void history.refetch()}
-          disabled={history.isFetching || !online}
-        >
-          <RefreshCw size={16} className={history.isFetching ? 'spin' : ''} />
-        </button>
+        <strong>{summary ? sessionLabel(summary) : sessionId.slice(0, 20)}</strong>
+        <span>{summary?.cwd ?? String(asRecord(data.header).cwd ?? sessionId)}</span>
       </div>
-      {!online && (
-        <div className="offline-banner">实例已离线。已加载历史仍可查看，连接恢复后自动同步</div>
-      )}
       <div
         className="transcript"
         ref={scrollRef}
@@ -1792,14 +1589,12 @@ function Session({
       >
         {history.isPending && online ? (
           <div className="subtle-loading">
-            <Spinner /> 读取会话历史…
+            <Spinner />
           </div>
         ) : null}
         <Err error={history.error} />
         {!history.isPending && !messages.length && !streamText ? (
-          <Empty icon={<MessageSquare size={25} />} title="一个新的开始">
-            写下你的目标、问题或任务，DSH 会从这里开始
-          </Empty>
+          <p className="transcript-empty">尚无消息</p>
         ) : null}
         {messages.map(({ event, message }) =>
           message!.role === '运行时上下文' ? (
@@ -1814,15 +1609,6 @@ function Session({
               key={event.seq}
               className={`message ${message!.role === '你' ? 'user-message' : ''}`}
             >
-              <div className="message-avatar">
-                {message!.role === '你' ? (
-                  <span>你</span>
-                ) : message!.role === 'DSH' ? (
-                  <Terminal size={17} />
-                ) : (
-                  <Settings2 size={16} />
-                )}
-              </div>
               <div className="message-content">
                 <header>
                   <strong>{message!.role}</strong>
@@ -1842,16 +1628,11 @@ function Session({
         )}
         {streamText && (
           <article className="message live-message">
-            <div className="message-avatar">
-              <Terminal size={17} />
-            </div>
             <div className="message-content">
               <header>
                 <strong>DSH</strong>
-                <span>
-                  <span className="status-dot pulse" />{' '}
-                  {stream?.incomplete ? '实时片段 · 完整内容将在结束后同步' : '实时输出'}
-                </span>
+                <span className="status-dot pulse" />
+                {stream?.incomplete ? <span>部分片段，结束后同步完整内容</span> : null}
               </header>
               <div className="message-text">
                 {streamText}
@@ -1869,7 +1650,7 @@ function Session({
       )}
       {queued.length > 0 && (
         <div className="queue-list">
-          <div className="eyebrow">待处理队列 · {queued.length}</div>
+          <h4>队列 {queued.length}</h4>
           {queued.map((item, index) => (
             <div key={String(asRecord(item).id ?? index)}>
               <p>{contentText(asRecord(item).content)}</p>
@@ -1907,12 +1688,8 @@ function Session({
       <div className="approval-dock">
         {pending.size > 0 &&
           [...pending.values()].map((approval) => (
-            <div className="approval-card" key={String(approval.approvalId)}>
-              <div>
-                <Shield size={19} />
-                <strong>等待你的审批</strong>
-                <span className="pill">仅本次</span>
-              </div>
+            <div className="approval-card swap" key={String(approval.approvalId)}>
+              <strong className="approval-title">等待你的审批</strong>
               <h4>{String(approval.toolName ?? '工具调用')}</h4>
               <p>{String(approval.reason ?? '请核对本次操作后决定是否允许')}</p>
               {toolCallForApproval(approval, wireEvents) ? (
@@ -1929,13 +1706,6 @@ function Session({
               )}
               <div className="approval-actions">
                 <button
-                  className="quiet"
-                  disabled={!canWrite || !!approvalBusy}
-                  onClick={() => void approve(approval, 'rejected')}
-                >
-                  拒绝
-                </button>
-                <button
                   className="primary small"
                   disabled={
                     !canWrite ||
@@ -1944,7 +1714,14 @@ function Session({
                   }
                   onClick={() => void approve(approval, 'allowed-once')}
                 >
-                  {approvalBusy === approval.approvalId ? <Spinner /> : <Check size={15} />}允许本次
+                  {approvalBusy === approval.approvalId ? <Spinner /> : null}允许本次
+                </button>
+                <button
+                  className="quiet"
+                  disabled={!canWrite || !!approvalBusy}
+                  onClick={() => void approve(approval, 'rejected')}
+                >
+                  拒绝
                 </button>
               </div>
             </div>
@@ -1955,16 +1732,6 @@ function Session({
         {invalidReferences && (
           <div className="error" role="alert">
             引用已过期或不可用，请在仓库页面重新验证，或移除对应引用
-          </div>
-        )}
-        {!canWrite && (
-          <div className="view-only">
-            <Shield size={14} />
-            {operations.operations.some((op) => op.instanceId === id)
-              ? '原命令尚待确认 · 可查看历史、停止等待或查询原命令'
-              : online
-                ? '只读模式 · 获取控制权后可发送消息与处理审批'
-                : '实例连接不可用于写入 · 等待状态恢复'}
           </div>
         )}
         <form
@@ -2026,7 +1793,13 @@ function Session({
             maxLength={100000}
             aria-label="消息"
             placeholder={
-              canWrite ? '描述任务，或告诉 DSH 下一步该怎么做…' : '先获取控制权，再开始对话'
+              canWrite
+                ? '描述任务，或告诉 DSH 下一步该怎么做'
+                : operations.operations.some((op) => op.instanceId === id)
+                  ? '原命令尚待确认'
+                  : online
+                    ? '只读 · 获取控制权后可发送'
+                    : '实例离线'
             }
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -2102,43 +1875,43 @@ function Session({
                 onChange={(e) => setMode(e.target.value as 'queue' | 'steer')}
                 disabled={!canWrite}
               >
-                <option value="queue">排队发送</option>
+                <option value="queue">排队</option>
                 <option value="steer">下一步引导</option>
               </select>
-              {running && (
+              {running && !prompt.trim() && !files.length ? (
                 <button
                   type="button"
-                  className="stop-button"
+                  key="stop"
+                  className="stop-button swap"
+                  aria-label="停止任务"
                   title="停止任务"
                   disabled={!canWrite || cancel.isPending}
                   onClick={() => cancel.mutate()}
                 >
                   {cancel.isPending ? <Spinner /> : <Square size={13} />}
                 </button>
+              ) : (
+                <button
+                  key="send"
+                  className="send-button swap"
+                  aria-label="发送消息"
+                  title="发送 · Ctrl / ⌘ + Enter"
+                  disabled={
+                    !canWrite ||
+                    invalidReferences ||
+                    send.isPending ||
+                    uploading ||
+                    (!prompt.trim() && !files.length)
+                  }
+                >
+                  {send.isPending ? <Spinner /> : <Send size={17} />}
+                </button>
               )}
-              <button
-                className="send-button"
-                aria-label="发送消息"
-                title="发送 · Ctrl / ⌘ + Enter"
-                disabled={
-                  !canWrite ||
-                  invalidReferences ||
-                  send.isPending ||
-                  uploading ||
-                  (!prompt.trim() && !files.length)
-                }
-              >
-                {send.isPending ? <Spinner /> : <Send size={17} />}
-              </button>
             </div>
           </div>
         </form>
-        <div className="composer-footer">
-          <span>
-            {mode === 'steer' ? 'Steer 在下一个步骤边界生效' : '消息进入 DSH 会话队列'} · Ctrl / ⌘ +
-            Enter 发送
-          </span>
-          {data.agentAvailable === false && (
+        {data.agentAvailable === false && (
+          <div className="composer-footer">
             <button
               className="text-button"
               disabled={!canWrite || resume.isPending}
@@ -2146,8 +1919,8 @@ function Session({
             >
               恢复运行环境
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
       {contextOpen && (
         <Modal
