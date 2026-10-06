@@ -20,6 +20,21 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
+# Windows PowerShell 5.1 turns a native tool's stderr into a terminating error under 'Stop',
+# and keytool reports its progress on stderr. Native tools are judged by exit code instead.
+function Invoke-Native {
+  param([string]$File, [string[]]$Arguments, [string]$InputText)
+  $previous = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    if ($PSBoundParameters.ContainsKey('InputText')) { $output = $InputText | & $File @Arguments 2>&1 }
+    else { $output = & $File @Arguments 2>&1 }
+    [pscustomobject]@{ Code = $LASTEXITCODE; Output = @($output | ForEach-Object { "$_" }) }
+  } finally {
+    $ErrorActionPreference = $previous
+  }
+}
+
 $keytool = (Get-Command keytool -ErrorAction SilentlyContinue).Source
 if (-not $keytool) {
   $jdk = Get-ChildItem 'C:\Program Files\Eclipse Adoptium', 'C:\Program Files\Java' -Directory -ErrorAction SilentlyContinue |
@@ -27,9 +42,9 @@ if (-not $keytool) {
   if ($jdk) { $keytool = Join-Path $jdk.FullName 'bin\keytool.exe' }
 }
 if (-not $keytool) { throw 'keytool not found; install a JDK (17 or newer) first.' }
-if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw 'GitHub CLI (gh) not found.' }
-gh auth status *> $null
-if ($LASTEXITCODE -ne 0) { throw 'Sign in to the GitHub CLI first: gh auth login' }
+$gh = (Get-Command gh -ErrorAction SilentlyContinue).Source
+if (-not $gh) { throw 'GitHub CLI (gh) not found.' }
+if ((Invoke-Native $gh @('auth', 'status')).Code -ne 0) { throw 'Sign in to the GitHub CLI first: gh auth login' }
 
 $keystore = Join-Path $BackupDir 'dsh-remote-release.p12'
 $passwordFile = Join-Path $BackupDir 'password.txt'
@@ -38,28 +53,38 @@ if (Test-Path $keystore) {
 }
 New-Item -ItemType Directory -Force $BackupDir | Out-Null
 
-# 32 random bytes as URL-safe text; keytool and Gradle accept it unquoted.
+# 32 random bytes as URL-safe text. keytool reads it from the environment, so it never appears
+# on a command line.
 $bytes = New-Object byte[] 32
 [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
 $password = [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+$env:DSH_RELEASE_KEY_PASSWORD = $password
+try {
+  $created = Invoke-Native $keytool @(
+    '-genkeypair', '-keystore', $keystore, '-storetype', 'PKCS12', '-alias', $Alias,
+    '-keyalg', 'RSA', '-keysize', '4096', '-validity', '10000',
+    '-dname', 'CN=DSH Remote, O=DSH Remote', '-noprompt',
+    '-storepass:env', 'DSH_RELEASE_KEY_PASSWORD', '-keypass:env', 'DSH_RELEASE_KEY_PASSWORD')
+  if ($created.Code -ne 0 -or -not (Test-Path $keystore)) {
+    throw "keytool could not create the keystore: $($created.Output -join ' ')"
+  }
+  Set-Content -Path $passwordFile -Value $password -NoNewline -Encoding ascii
 
-& $keytool -genkeypair -keystore $keystore -storetype PKCS12 -alias $Alias `
-  -keyalg RSA -keysize 4096 -validity 10000 -dname 'CN=DSH Remote, O=DSH Remote' `
-  -storepass $password -keypass $password -noprompt *> $null
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path $keystore)) { throw 'keytool could not create the keystore.' }
-Set-Content -Path $passwordFile -Value $password -NoNewline -Encoding ascii
+  function Set-Secret([string]$Name, [string]$Value) {
+    # Through stdin, so the value never appears on a command line or in the output.
+    $result = Invoke-Native $gh @('secret', 'set', $Name, '--repo', $Repo) -InputText $Value
+    if ($result.Code -ne 0) { throw "Uploading $Name failed; the key is kept in $BackupDir. $($result.Output -join ' ')" }
+  }
+  Set-Secret 'ANDROID_KEYSTORE_BASE64' ([Convert]::ToBase64String([IO.File]::ReadAllBytes($keystore)))
+  Set-Secret 'ANDROID_KEYSTORE_PASSWORD' $password
+  Set-Secret 'ANDROID_KEY_ALIAS' $Alias
 
-function Set-Secret([string]$Name, [string]$Value) {
-  # Through stdin, so the value never appears on a command line or in the output.
-  $Value | gh secret set $Name --repo $Repo
-  if ($LASTEXITCODE -ne 0) { throw "Uploading $Name failed; the key is kept in $BackupDir." }
+  $listing = Invoke-Native $keytool @('-list', '-v', '-keystore', $keystore, '-alias', $Alias,
+    '-storepass:env', 'DSH_RELEASE_KEY_PASSWORD')
+  $fingerprint = $listing.Output | Where-Object { $_ -match 'SHA-?256' } | Select-Object -First 1
+} finally {
+  Remove-Item Env:DSH_RELEASE_KEY_PASSWORD -ErrorAction SilentlyContinue
 }
-Set-Secret 'ANDROID_KEYSTORE_BASE64' ([Convert]::ToBase64String([IO.File]::ReadAllBytes($keystore)))
-Set-Secret 'ANDROID_KEYSTORE_PASSWORD' $password
-Set-Secret 'ANDROID_KEY_ALIAS' $Alias
-
-$fingerprint = & $keytool -list -keystore $keystore -storepass $password -alias $Alias |
-  Select-String 'SHA-256' | Select-Object -First 1
 Write-Host "Release key created and uploaded to $Repo (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS)."
 Write-Host "Backup (keep it safe, never commit it): $BackupDir"
-if ($fingerprint) { Write-Host $fingerprint.ToString().Trim() }
+if ($fingerprint) { Write-Host $fingerprint.Trim() }
