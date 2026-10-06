@@ -238,13 +238,18 @@ export function createGitHubService(
     try {
       response = await transport(url, {
         ...init,
-        redirect: 'error',
+        // Redirects are never followed: a 3xx is not ok and fails below. ('error' would be the
+        // natural mode, but Cloudflare Workers only implement 'follow' and 'manual'.)
+        redirect: 'manual',
         signal: AbortSignal.timeout(12_000),
       });
-    } catch {
+    } catch (error) {
+      // Operators get the failure kind only; never URLs with parameters, headers or bodies.
+      console.warn(`GitHub request failed: ${error instanceof Error ? error.name : 'unknown'}`);
       return fail(502, 'GITHUB_UNAVAILABLE', 'GitHub did not respond; try again');
     }
     if (!response.ok) {
+      console.warn(`GitHub answered HTTP ${response.status}`);
       // Never include provider bodies, tokens, request parameters or headers in errors/logs.
       if (response.status === 401)
         return fail(
@@ -398,7 +403,11 @@ export function createGitHubService(
   async function exchange(code: string, verifier: string): Promise<Exchanged> {
     const token = await request('https://github.com/login/oauth/access_token', {
       method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'DSH-Remote',
+      },
       body: new URLSearchParams({
         client_id: options.clientId!,
         client_secret: options.clientSecret!,

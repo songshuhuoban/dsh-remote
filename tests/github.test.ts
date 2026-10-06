@@ -183,7 +183,8 @@ describe('GitHub OAuth protocol fixture', () => {
     expect(createHash('sha256').update(form.get('code_verifier')!).digest('base64url')).toBe(
       url.searchParams.get('code_challenge')!,
     );
-    expect(exchange.init?.redirect).toBe('error');
+    // Never followed; 'manual' because Cloudflare Workers reject 'error'.
+    expect(exchange.init?.redirect).toBe('manual');
     expect(f.github.status('alice').state).toBe('connected');
     const rows = JSON.stringify(f.db.query('SELECT * FROM github_accounts').all());
     expect(rows).not.toContain('ghu_');
