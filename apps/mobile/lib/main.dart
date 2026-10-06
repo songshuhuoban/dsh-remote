@@ -881,7 +881,8 @@ class _InstancePageState extends State<InstancePage>
   Future<void> createSession() async {
     if (!store.canWrite(widget.id) && !await takeControl()) return;
     if (!mounted) return;
-    // Plugins that predate the folder picker create in their default folder.
+    // Plugins that predate the folder picker create in their default folder;
+    // the dialog says how to update them.
     final browsable =
         store.instance(widget.id)?.capabilities.contains('workspace.browse') ==
         true;
@@ -893,12 +894,7 @@ class _InstancePageState extends State<InstancePage>
         instanceId: widget.id,
       );
       if (cwd == null) return;
-    } else if (!await confirmDialog(
-      context,
-      'New session?',
-      'Create a session in the connector’s configured default workspace.',
-      'Create session',
-    )) {
+    } else if (!await showOldPluginDialog(context, store: store)) {
       return;
     }
     if (!mounted) return;

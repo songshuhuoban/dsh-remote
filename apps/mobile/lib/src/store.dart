@@ -9,6 +9,7 @@ import 'package:flutter/scheduler.dart';
 
 import 'api.dart';
 import 'credentials.dart';
+import 'host_path.dart';
 import 'models.dart';
 
 /// What connecting does for the instance a page shows, as in remote-desktop
@@ -132,6 +133,20 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
   final Map<String, List<RepositoryReference>> repositories = {};
   final Map<String, JsonMap> drafts = {};
   JsonMap? githubStatus;
+
+  /// Each instance's path style as its `workspace.list` reported it (or, for
+  /// hosts that predate `style`, as its folders show it).
+  final Map<String, HostPathStyle> hostStyles = {};
+
+  /// The path style of [id]'s host: as last reported, else as the checkout
+  /// paths recorded for it show. Null when nothing is known yet.
+  HostPathStyle? hostStyle(String id) =>
+      hostStyles[id] ??
+      inferHostPathStyle([
+        for (final reference in repositories[id] ?? <RepositoryReference>[])
+          reference.localPath,
+      ]);
+
   bool canWrite(String id) =>
       journalError == null &&
       connection == 'Live' &&
@@ -698,6 +713,45 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
     'GET',
     'api/github/repositories?installationId=$installationId&page=$page&installationPage=$installationPage',
   );
+
+  /// Where the GitHub App is installed and its repositories chosen.
+  Future<String> githubInstallUrl() async {
+    final result = await api!.request('POST', 'api/github/install', {
+      'controllerId': controllerId,
+    });
+    final url = result['installationUrl'];
+    if (url is! String || Uri.tryParse(url)?.scheme != 'https') {
+      throw const ApiException(
+        'invalid_response',
+        'The relay did not return a GitHub address.',
+      );
+    }
+    return url;
+  }
+
+  String? _pluginPackage;
+
+  /// The address of the DSH Remote plugin package this relay serves, from
+  /// `/plugin/manifest.json`; null when the relay ships none.
+  Future<String?> pluginPackageUrl() async {
+    final client = api;
+    if (client == null) return null;
+    if (_pluginPackage != null) return _pluginPackage;
+    try {
+      final manifest = await client.request('GET', 'plugin/manifest.json');
+      final file = manifest['file'];
+      if (file is! String || !RegExp(r'^[\w.-]+\.tgz$').hasMatch(file)) {
+        return null;
+      }
+      final url = client.base.resolve('plugin/$file').toString();
+      if (client == api) _pluginPackage = url;
+      return url;
+    } catch (_) {
+      // Without a packed plugin the relay answers with its web app.
+      return null;
+    }
+  }
+
   Future<void> disconnectGithub() async {
     await api!.request('POST', 'api/github/disconnect', {
       'controllerId': controllerId,
@@ -1185,6 +1239,8 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
     repositories.clear();
     drafts.clear();
     githubStatus = null;
+    hostStyles.clear();
+    _pluginPackage = null;
     journalError = null;
     api = null;
     user = null;

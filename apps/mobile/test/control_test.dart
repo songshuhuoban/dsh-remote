@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:dsh_remote_mobile/main.dart';
 import 'package:dsh_remote_mobile/src/api.dart';
 import 'package:dsh_remote_mobile/src/credentials.dart';
+import 'package:dsh_remote_mobile/src/host_path.dart';
 import 'package:dsh_remote_mobile/src/models.dart';
 import 'package:dsh_remote_mobile/src/store.dart';
 import 'package:dsh_remote_mobile/src/theme.dart';
@@ -25,6 +26,8 @@ class MemoryJournal implements CommandJournalStore {
 
 /// One instance "i", this controller "c", and a Host with folders under
 /// /srv/proj (allowed) and /home/me (reachable when [anyWorkspace] is on).
+/// The relay's GitHub endpoints and plugin manifest answer from the fields
+/// below.
 class FakeRelay extends RelayApi {
   FakeRelay({
     this.holder,
@@ -36,6 +39,13 @@ class FakeRelay extends RelayApi {
     ],
     this.roots = const [('proj', '/srv/proj')],
     this.anyWorkspace = false,
+    this.style,
+    this.home,
+    this.folders = posixFolders,
+    this.pluginFile,
+    this.github = const {'configured': false, 'state': 'disconnected'},
+    this.installations = const [],
+    this.githubRepositories = const {},
   }) : super('https://relay.example.invalid') {
     token = 'ephemeral-test';
   }
@@ -45,6 +55,22 @@ class FakeRelay extends RelayApi {
   final List<String> capabilities;
   final List<(String, String)> roots;
   final bool anyWorkspace;
+
+  /// The host's path style and home as a current plugin reports them in
+  /// `workspace.list`; older plugins (null) omit both.
+  final String? style;
+  final String? home;
+
+  /// Each listable folder and the names of its subfolders.
+  final Map<String, List<String>> folders;
+
+  /// The plugin package named in /plugin/manifest.json; none when null.
+  final String? pluginFile;
+  JsonMap github;
+  List<JsonMap> installations;
+  Map<int, List<JsonMap>> githubRepositories;
+  final githubRequests = <String>[];
+  final mappings = <JsonMap>[];
   final controllers = <JsonMap>[
     {'id': 'c', 'name': 'This phone', 'active': true},
     {'id': 'laptop', 'name': 'Work laptop', 'active': true},
@@ -53,12 +79,14 @@ class FakeRelay extends RelayApi {
   final reads = <JsonMap>[];
   final writes = <JsonMap>[];
   final sessions = <JsonMap>[];
-  static const folders = {
+  static const posixFolders = {
     '/srv/proj': ['api', 'web'],
     '/srv/proj/api': <String>[],
     '/srv/proj/web': <String>[],
     '/home/me': ['locked'],
   };
+  static const installUrl =
+      'https://github.com/apps/dsh-remote/installations/new';
 
   JsonMap get instance => {
     'id': 'i',
@@ -95,6 +123,7 @@ class FakeRelay extends RelayApi {
             for (final (name, path) in roots) {'name': name, 'path': path},
           ],
           'anyWorkspace': anyWorkspace,
+          if (style != null) ...{'style': style, 'home': home},
         };
       case 'workspace.browse':
         final path = args['path'] as String?;
@@ -110,15 +139,20 @@ class FakeRelay extends RelayApi {
           };
         }
         final children = folders[path];
-        if (children == null) {
+        if (path.endsWith('locked')) {
           throw const ApiException('access_denied', 'Cannot read');
         }
-        final up = path.substring(0, path.lastIndexOf('/'));
+        if (children == null) {
+          throw const ApiException('not_found', 'No such folder');
+        }
+        final separator = path.contains(r'\') ? r'\' : '/';
+        final up = path.substring(0, path.lastIndexOf(separator));
         return {
           'path': path,
           'parent': folders.containsKey(up) || anyWorkspace ? up : null,
           'directories': [
-            for (final name in children) {'name': name, 'path': '$path/$name'},
+            for (final name in children)
+              {'name': name, 'path': '$path$separator$name'},
           ],
           'truncated': false,
         };
@@ -135,7 +169,51 @@ class FakeRelay extends RelayApi {
     }
     if (path == 'api/controllers') return {'controllers': controllers};
     if (path.endsWith('/state')) return {'instance': instance};
-    if (path.endsWith('/repositories')) return {'repositories': []};
+    if (path.endsWith('/repositories')) {
+      if (method == 'POST') mappings.add(body!);
+      return {
+        'repositories': [
+          for (final (index, mapping) in mappings.indexed)
+            {
+              'id': 'r$index',
+              'instanceId': 'i',
+              'fullName': 'team/repo$index',
+              'localPath': mapping['localPath'],
+              'localState': 'declared',
+              'authorization': mapping['source'],
+              'selected': true,
+            },
+        ],
+      };
+    }
+    if (path == 'plugin/manifest.json') {
+      if (pluginFile == null) {
+        // The relay's web app answers instead.
+        throw const ApiException('invalid_response', 'Not JSON', 200);
+      }
+      return {'version': '0.4.0', 'file': pluginFile};
+    }
+    if (path == 'api/github/status') return github;
+    if (path.startsWith('api/github/')) {
+      githubRequests.add('$method $path');
+      if (path == 'api/github/install') {
+        expect(body, {'controllerId': 'c'});
+        return {'installationUrl': installUrl};
+      }
+      if (path.startsWith('api/github/installations')) {
+        return {'installations': installations, 'page': 1, 'hasMore': false};
+      }
+      if (path.startsWith('api/github/repositories')) {
+        final id = int.parse(
+          Uri.parse(path).queryParameters['installationId']!,
+        );
+        return {
+          'repositories': githubRepositories[id] ?? [],
+          'page': 1,
+          'hasMore': false,
+        };
+      }
+    }
     if (path.endsWith('/lease')) {
       leaseRequests.add({'method': method, ...?body});
       final me = body!['controllerId'] as String;
@@ -199,6 +277,18 @@ Widget app(Widget home) =>
 
 Finder inDialog(Finder finder) =>
     find.descendant(of: find.byType(AlertDialog), matching: finder);
+
+/// The folder the picker's breadcrumbs show, or null when none is open.
+String? crumbs(WidgetTester tester) => tester
+    .widgetList<HostPathBreadcrumbs>(find.byType(HostPathBreadcrumbs))
+    .singleOrNull
+    ?.path;
+
+/// The `workspace.browse` paths [relay] was asked for, in order.
+List<Object?> browsed(FakeRelay relay) => [
+  for (final read in relay.reads)
+    if (read['action'] == 'workspace.browse') object(read['args'])['path'],
+];
 
 const takeoverText =
     'Taking over pushes that device off; it can only watch. Running tasks are not interrupted.';
@@ -330,7 +420,7 @@ void main() {
       expect(inDialog(find.byIcon(Icons.check_rounded)), findsOneWidget);
       await tester.tap(find.text('Choose subfolder'));
       await tester.pumpAndSettle();
-      expect(find.text('/srv/proj'), findsOneWidget);
+      expect(crumbs(tester), '/srv/proj');
       expect(find.text('web'), findsOneWidget);
       // Up from the edge of what may be listed returns to the starting places.
       await tester.tap(find.text('Up'));
@@ -341,7 +431,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('api'));
       await tester.pumpAndSettle();
-      expect(find.text('/srv/proj/api'), findsOneWidget);
+      expect(crumbs(tester), '/srv/proj/api');
       expect(find.text('No subfolders'), findsOneWidget);
       await tester.tap(find.text('Use this folder'));
       await tester.pumpAndSettle();
@@ -359,44 +449,191 @@ void main() {
       final args = object(relay.writes.single['args']);
       expect(args['cwd'], '/srv/proj/api');
       expect(args['sessionId'], isA<String>());
-      expect(
-        relay.reads
-            .where((r) => r['action'] == 'workspace.browse')
-            .map((r) => object(r['args'])['path']),
-        ['/srv/proj', null, '/srv/proj', '/srv/proj/api'],
-      );
+      expect(browsed(relay), ['/srv/proj', null, '/srv/proj', '/srv/proj/api']);
       expect(find.text('Session in /srv/proj/api'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     },
   );
 
-  testWidgets('a plugin without the folder picker keeps the confirmation', (
+  testWidgets(
+    'a plugin without the folder picker says to update it and keeps the default folder',
+    (tester) async {
+      final relay = FakeRelay(
+        capabilities: const ['session.create'],
+        pluginFile: 'dsh-remote-plugin-0.4.0.tgz',
+      );
+      final store = await connect(relay);
+      addTearDown(store.dispose);
+      await tester.pumpWidget(app(InstancePage(store: store, id: 'i')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('New session').first);
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'This host’s DSH Remote plugin is too old to browse folders; update it from the plugin page in DSH.',
+        ),
+        findsOneWidget,
+      );
+      // The package this relay serves, from /plugin/manifest.json.
+      expect(
+        find.text(
+          'https://relay.example.invalid/plugin/dsh-remote-plugin-0.4.0.tgz',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byTooltip('Copy package address'), findsOneWidget);
+      expect(find.text('Workspace folder'), findsNothing);
+      await tester.tap(find.text('Create in default folder'));
+      await tester.pumpAndSettle();
+      expect(
+        relay.reads.map((r) => r['action']),
+        isNot(contains('workspace.list')),
+      );
+      final args = object(relay.writes.single['args']);
+      expect(args.containsKey('cwd'), isFalse);
+      expect(args['sessionId'], isA<String>());
+      await tester.pumpWidget(const SizedBox());
+
+      // A relay without a packed plugin: the sentence alone.
+      final bare = FakeRelay(capabilities: const ['session.create']);
+      final other = await connect(bare);
+      addTearDown(other.dispose);
+      await tester.pumpWidget(app(InstancePage(store: other, id: 'i')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('New session').first);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('too old to browse folders'), findsOneWidget);
+      expect(find.text('Current plugin package'), findsNothing);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(bare.writes, isEmpty);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'breadcrumbs jump to a folder above; the current one and folders outside the allowed ones are not links',
+    (tester) async {
+      final relay = FakeRelay();
+      final store = await connect(relay);
+      addTearDown(store.dispose);
+      await tester.pumpWidget(app(InstancePage(store: store, id: 'i')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('New session').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Choose subfolder'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('api'));
+      await tester.pumpAndSettle();
+      expect(crumbs(tester), '/srv/proj/api');
+      final crumbRow = find.byType(HostPathBreadcrumbs);
+      for (final name in ['/', 'srv', 'proj', 'api']) {
+        expect(
+          find.descendant(of: crumbRow, matching: find.text(name)),
+          findsOneWidget,
+        );
+      }
+      Finder link(String name) => find.descendant(
+        of: crumbRow,
+        matching: find.widgetWithText(TextButton, name),
+      );
+      expect(link('api'), findsNothing);
+      // /srv and / are outside the allowed folder /srv/proj.
+      expect(link('srv'), findsNothing);
+      expect(link('/'), findsNothing);
+      await tester.tap(link('proj'));
+      await tester.pumpAndSettle();
+      expect(crumbs(tester), '/srv/proj');
+      expect(browsed(relay).last, '/srv/proj');
+      expect(find.text('web'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox());
+
+      // A host that allows any folder makes every folder above a link.
+      final open = FakeRelay(roots: const [], anyWorkspace: true);
+      final anywhere = await connect(open);
+      addTearDown(anywhere.dispose);
+      await tester.pumpWidget(app(InstancePage(store: anywhere, id: 'i')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('New session').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Browse other folders'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('me'));
+      await tester.pumpAndSettle();
+      expect(crumbs(tester), '/home/me');
+      expect(link('/'), findsOneWidget);
+      expect(link('home'), findsOneWidget);
+      expect(link('me'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('Go to path converts a pasted path to a Windows host’s style', (
     tester,
   ) async {
-    final relay = FakeRelay(capabilities: const ['session.create']);
+    final relay = FakeRelay(
+      roots: const [('work', r'E:\work')],
+      style: 'windows',
+      home: r'C:\Users\me',
+      folders: const {
+        r'E:\work': ['repo'],
+        r'E:\work\repo': ['src'],
+        r'E:\work\repo\src': [],
+      },
+    );
     final store = await connect(relay);
     addTearDown(store.dispose);
     await tester.pumpWidget(app(InstancePage(store: store, id: 'i')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('New session').first);
     await tester.pumpAndSettle();
-    expect(find.text('New session?'), findsOneWidget);
-    expect(
-      find.text(
-        'Create a session in the connector’s configured default workspace.',
-      ),
-      findsOneWidget,
-    );
-    expect(find.text('Workspace folder'), findsNothing);
-    await tester.tap(find.text('Create session'));
+    expect(store.hostStyles['i'], HostPathStyle.windows);
+    await tester.tap(find.text('Choose subfolder'));
+    await tester.pumpAndSettle();
+    expect(crumbs(tester), r'E:\work');
+    // The field stays out of the way until asked for.
+    final field = find.widgetWithText(TextField, 'Go to path');
+    expect(field, findsNothing);
+    await tester.tap(find.byTooltip('Go to path'));
+    await tester.pumpAndSettle();
+    await tester.enterText(field, 'e:/work/repo/');
+    await tester.tap(find.widgetWithText(TextButton, 'Go'));
+    await tester.pumpAndSettle();
+    expect(browsed(relay).last, r'E:\work\repo');
+    expect(crumbs(tester), r'E:\work\repo');
+    expect(find.text('src'), findsOneWidget);
+    expect(field, findsNothing);
+    // A POSIX path cannot name a folder there: said here, nothing is sent.
+    final asked = browsed(relay).length;
+    await tester.tap(find.byTooltip('Go to path'));
+    await tester.pumpAndSettle();
+    await tester.enterText(field, '/home/me');
+    await tester.testTextInput.receiveAction(TextInputAction.go);
     await tester.pumpAndSettle();
     expect(
-      relay.reads.map((r) => r['action']),
-      isNot(contains('workspace.list')),
+      find.text(r'Enter an absolute path on this host, like C:\work\repo.'),
+      findsOneWidget,
     );
-    final args = object(relay.writes.single['args']);
-    expect(args.containsKey('cwd'), isFalse);
-    expect(args['sessionId'], isA<String>());
+    expect(browsed(relay), hasLength(asked));
+    // The host's answer to a folder it lacks keeps the current one.
+    await tester.enterText(field, r'"E:\work\missing"');
+    await tester.tap(find.widgetWithText(TextButton, 'Go'));
+    await tester.pumpAndSettle();
+    expect(browsed(relay).last, r'E:\work\missing');
+    expect(
+      find.text('That folder doesn\'t exist on the host.'),
+      findsOneWidget,
+    );
+    expect(crumbs(tester), r'E:\work\repo');
+    expect(field, findsOneWidget);
+    await tester.tap(find.text('Use this folder'));
+    await tester.pumpAndSettle();
+    expect(find.text('repo'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Create session'));
+    await tester.pumpAndSettle();
+    expect(object(relay.writes.single['args'])['cwd'], r'E:\work\repo');
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -511,7 +748,7 @@ void main() {
       findsOneWidget,
     );
     // The folder that could be read stays on screen.
-    expect(find.text('/home/me'), findsOneWidget);
+    expect(crumbs(tester), '/home/me');
     await tester.tap(find.text('Use this folder'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Create session'));
@@ -611,7 +848,7 @@ void main() {
         text('no_workspace'),
         'This host has no folders allowed for remote sessions yet.',
       );
-      expect(text('not_found'), 'That folder no longer exists.');
+      expect(text('not_found'), 'That folder doesn\'t exist on the host.');
       expect(text('not_a_directory'), 'That is not a folder.');
       expect(text('access_denied'), 'That folder can\'t be read on the host.');
       expect(text('timeout'), 'raw timeout');

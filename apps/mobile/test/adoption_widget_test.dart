@@ -270,13 +270,20 @@ void main() {
         find.widgetWithText(TextFormField, 'GitHub repository URL'),
         'https://github.com/team/new',
       );
+      // Without the folder picker (no workspace.browse here) the path is
+      // typed; this host's paths are POSIX, as its references show.
+      expect(find.text(folderPickerUnavailable), findsOneWidget);
+      expect(find.text('Choose folder'), findsNothing);
       await tester.enterText(
         find.widgetWithText(TextFormField, 'Existing absolute checkout path'),
-        '/work/../new',
+        r'E:\work\new',
       );
       await tester.tap(find.text('Save reference'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('no traversal'), findsOneWidget);
+      expect(
+        find.text('Use an absolute path on this host, like /home/me/repo.'),
+        findsOneWidget,
+      );
       expect(store.mutations, isEmpty);
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
@@ -289,13 +296,19 @@ void main() {
       );
       await tester.enterText(
         find.widgetWithText(TextFormField, 'Existing absolute checkout path'),
-        '/work/new',
+        '/work//new/./',
       );
+      await tester.pump();
+      expect(find.text('Saved as /work/new'), findsOneWidget);
       await tester.tap(find.text('Save reference'));
       await tester.pumpAndSettle();
       expect(
         store.mutations.single['mapping'],
         containsPair('source', 'manual'),
+      );
+      expect(
+        store.mutations.single['mapping'],
+        containsPair('localPath', '/work/new'),
       );
       expect(store.repositories['i']!.last.localState, 'declared');
       expect(tester.takeException(), isNull);

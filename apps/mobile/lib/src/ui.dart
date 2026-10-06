@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'models.dart';
 import 'store.dart';
@@ -516,3 +517,8 @@ String shortTime(DateTime value) {
   }
   return '${local.year}-${two(local.month)}-${two(local.day)} $time';
 }
+
+/// Opens [url] outside the app, in the browser or the app that handles it.
+/// False when nothing could open it.
+Future<bool> openExternally(Uri url) =>
+    launchUrl(url, mode: LaunchMode.externalApplication);

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
+import 'api.dart';
+import 'host_path.dart';
 import 'models.dart';
 import 'store.dart';
 import 'theme.dart';
 import 'ui.dart';
+import 'workspace_picker.dart';
 
 class RepositoriesPage extends StatefulWidget {
   const RepositoriesPage({
@@ -11,17 +14,22 @@ class RepositoriesPage extends StatefulWidget {
     required this.instanceId,
     this.initialIds = const [],
     this.pickForMessage = false,
+    this.openUrl = openExternally,
     super.key,
   });
   final RemoteStore store;
   final String instanceId;
   final List<String> initialIds;
   final bool pickForMessage;
+
+  /// Opens an address outside the app (GitHub's installation page).
+  final Future<bool> Function(Uri url) openUrl;
   @override
   State<RepositoriesPage> createState() => _RepositoriesPageState();
 }
 
-class _RepositoriesPageState extends State<RepositoriesPage> {
+class _RepositoriesPageState extends State<RepositoriesPage>
+    with WidgetsBindingObserver {
   bool busy = false;
   String? error;
   String? notice;
@@ -32,6 +40,15 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
   bool moreInstallations = false;
   bool moreRepositories = false;
   int? installationId;
+
+  /// GitHub was looked at since the tab first opened.
+  bool discovered = false;
+
+  /// The installation list loaded; empty means the App is not installed.
+  bool installationsLoaded = false;
+
+  /// GitHub's installation page was opened; returning refreshes the list.
+  bool awaitingInstall = false;
   List<JsonMap> installations = [];
   List<JsonMap> available = [];
   final Map<int, JsonMap> selectedGithub = {};
@@ -39,14 +56,25 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     widget.store.addListener(changed);
     refresh();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     widget.store.removeListener(changed);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Back from installing the GitHub App: show what it may read now.
+    if (state == AppLifecycleState.resumed && awaitingInstall && tab == 1) {
+      awaitingInstall = false;
+      discover();
+    }
   }
 
   void changed() {
@@ -68,16 +96,28 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
         setState(() => error = e.toString());
       }
     } finally {
-      if (mounted && generation == operation) setState(() => busy = false);
+      if (mounted && generation == operation) {
+        setState(() => busy = false);
+        // The GitHub tab opened while something else was loading.
+        if (tab == 1 && !discovered) discover();
+      }
     }
   }
 
   Future<void> refresh() => run(() async {
     await widget.store.refreshRepositories(widget.instanceId);
-    await widget.store.refreshGithub();
+    if (tab == 1) {
+      await loadGithub();
+    } else {
+      await widget.store.refreshGithub();
+    }
     await widget.store.refreshInstance(widget.instanceId);
   });
-  Future<void> discover({bool reloadInstallations = true}) => run(() async {
+
+  /// GitHub status, then the installations and the chosen one's
+  /// repositories. A single installation is chosen at once.
+  Future<void> loadGithub({bool reloadInstallations = true}) async {
+    discovered = true;
     final status = await widget.store.refreshGithub();
     if (status['state'] != 'connected') return;
     if (reloadInstallations) {
@@ -89,6 +129,7 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
           .map(object)
           .toList();
       moreInstallations = result['hasMore'] == true;
+      installationsLoaded = true;
       if (!installations.any((i) => i['id'] == installationId)) {
         installationId = installations.isEmpty
             ? null
@@ -98,6 +139,7 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
     }
     if (installationId == null) {
       available = [];
+      moreRepositories = false;
       return;
     }
     final result = await widget.store.githubRepositories(
@@ -108,12 +150,34 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
     if (!mounted) return;
     available = (result['repositories'] as List? ?? []).map(object).toList();
     moreRepositories = result['hasMore'] == true;
+  }
+
+  Future<void> discover({bool reloadInstallations = true}) =>
+      run(() => loadGithub(reloadInstallations: reloadInstallations));
+
+  /// Opens GitHub's page for installing the App and choosing the
+  /// repositories it may read.
+  Future<void> installGithub() => run(() async {
+    final url = await widget.store.githubInstallUrl();
+    final opened = await widget
+        .openUrl(Uri.parse(url))
+        .catchError((Object _) => false);
+    if (!opened) {
+      throw ApiException(
+        'open_failed',
+        'Could not open GitHub. Open $url in a browser, then refresh here.',
+      );
+    }
+    awaitingInstall = true;
   });
 
   Future<void> mapManual() async {
     final mapping = await showDialog<JsonMap>(
       context: context,
-      builder: (_) => const RepositoryMappingDialog(),
+      builder: (_) => RepositoryMappingDialog(
+        store: widget.store,
+        instanceId: widget.instanceId,
+      ),
     );
     if (mapping == null || !mounted) return;
     await run(() async {
@@ -133,7 +197,11 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
     if (candidates.isEmpty) return;
     final mappings = await showDialog<List<JsonMap>>(
       context: context,
-      builder: (_) => GithubMappingsDialog(repositories: candidates),
+      builder: (_) => GithubMappingsDialog(
+        repositories: candidates,
+        store: widget.store,
+        instanceId: widget.instanceId,
+      ),
     );
     if (mappings == null || !mounted) return;
     await run(() async {
@@ -261,9 +329,8 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
                       selected: {tab},
                       onSelectionChanged: (values) {
                         setState(() => tab = values.first);
-                        if (tab == 1 && available.isEmpty && !busy) {
-                          discover();
-                        }
+                        // While busy, the running operation looks after it.
+                        if (tab == 1 && !discovered && !busy) discover();
                       },
                     ),
                   ),
@@ -459,6 +526,10 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
     final status = widget.store.githubStatus;
     final configured = status?['configured'] == true;
     final connected = status?['state'] == 'connected';
+    // Connected, but the App is installed nowhere yet: GitHub shows it no
+    // repositories until it is installed and given some.
+    final notInstalled =
+        connected && installationsLoaded && installations.isEmpty;
     final text = Theme.of(context).textTheme;
     final secondary = text.bodyMedium?.copyWith(
       color: HarnessColors.of(context).secondary,
@@ -484,6 +555,7 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
         ),
       ],
     );
+    final pagedInstallations = installationPage > 1 || moreInstallations;
     return ListView(
       padding: const EdgeInsets.fromLTRB(Space.l, Space.xl, Space.l, Space.xl),
       children: [
@@ -497,13 +569,15 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
               : 'GitHub is disconnected',
           style: text.titleMedium,
         ),
-        const SizedBox(height: Space.s),
-        Text(
-          'Native OAuth is not supported. Grant read-only access in the web app signed in to this same relay account, then refresh here.',
-          style: text.bodySmall,
-        ),
-        const SizedBox(height: Space.xs),
-        SelectableText(widget.store.server, style: text.bodySmall),
+        if (!connected) ...[
+          const SizedBox(height: Space.s),
+          Text(
+            'Native OAuth is not supported. Grant read-only access in the web app signed in to this same relay account, then refresh here.',
+            style: text.bodySmall,
+          ),
+          const SizedBox(height: Space.xs),
+          SelectableText(widget.store.server, style: text.bodySmall),
+        ],
         if (!configured)
           Padding(
             padding: const EdgeInsets.only(top: Space.s),
@@ -516,11 +590,13 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
         Wrap(
           spacing: Space.l,
           children: [
-            TextButton(
-              style: edgeAction,
-              onPressed: busy ? null : () => discover(),
-              child: const Text('Refresh GitHub access'),
-            ),
+            // The empty state below has its own refresh.
+            if (!notInstalled)
+              TextButton(
+                style: edgeAction,
+                onPressed: busy ? null : () => discover(),
+                child: const Text('Refresh GitHub access'),
+              ),
             if (connected)
               TextButton(
                 style: edgeAction,
@@ -529,14 +605,31 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
               ),
           ],
         ),
-        if (connected) ...[
+        if (notInstalled) ...[
           const SizedBox(height: Space.l),
-          if (installations.isEmpty && !busy)
-            Text(
-              'No accessible installations. Select repositories for this App in the signed-in web flow, then refresh.',
-              style: secondary,
-            ),
-          if (installations.isNotEmpty)
+          Text(
+            'Install DSH Remote on GitHub and choose the repositories it may read.',
+            style: text.bodyMedium,
+          ),
+          const SizedBox(height: Space.m),
+          Wrap(
+            spacing: Space.s,
+            runSpacing: Space.s,
+            children: [
+              FilledButton(
+                onPressed: busy ? null : installGithub,
+                child: const Text('Install on GitHub'),
+              ),
+              TextButton(
+                onPressed: busy ? null : () => discover(),
+                child: const Text('Refresh'),
+              ),
+            ],
+          ),
+        ] else if (connected) ...[
+          const SizedBox(height: Space.l),
+          // One installation is simply used; choosing needs more than one.
+          if (installations.length > 1 || pagedInstallations)
             DropdownButtonHideUnderline(
               child: DropdownButton<int>(
                 isExpanded: true,
@@ -562,26 +655,29 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
                       },
               ),
             ),
-          pager(
-            'Installation page $installationPage',
-            previous: 'Previous installations',
-            next: 'Next installations',
-            onPrevious: busy || installationPage == 1
-                ? null
-                : () {
-                    installationPage--;
-                    discover();
-                  },
-            onNext: busy || !moreInstallations
-                ? null
-                : () {
-                    installationPage++;
-                    discover();
-                  },
-          ),
-          if (available.isEmpty && !busy)
+          if (pagedInstallations)
+            pager(
+              'Installation page $installationPage',
+              previous: 'Previous installations',
+              next: 'Next installations',
+              onPrevious: busy || installationPage == 1
+                  ? null
+                  : () {
+                      installationPage--;
+                      discover();
+                    },
+              onNext: busy || !moreInstallations
+                  ? null
+                  : () {
+                      installationPage++;
+                      discover();
+                    },
+            ),
+          if (available.isEmpty && !busy && installationsLoaded)
             Text(
-              'No repositories on this page. Refresh access or choose another installation.',
+              installations.length > 1 || pagedInstallations
+                  ? 'No repositories on this page. Refresh access or choose another installation.'
+                  : 'No repositories on this page. Choose repositories for DSH Remote on GitHub, then refresh.',
               style: secondary,
             ),
           for (final repository in available)
@@ -608,23 +704,24 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
                       }
                     }),
             ),
-          pager(
-            'Repository page $repositoryPage',
-            previous: 'Previous repositories',
-            next: 'Next repositories',
-            onPrevious: busy || repositoryPage == 1
-                ? null
-                : () {
-                    repositoryPage--;
-                    discover(reloadInstallations: false);
-                  },
-            onNext: busy || !moreRepositories
-                ? null
-                : () {
-                    repositoryPage++;
-                    discover(reloadInstallations: false);
-                  },
-          ),
+          if (repositoryPage > 1 || moreRepositories)
+            pager(
+              'Repository page $repositoryPage',
+              previous: 'Previous repositories',
+              next: 'Next repositories',
+              onPrevious: busy || repositoryPage == 1
+                  ? null
+                  : () {
+                      repositoryPage--;
+                      discover(reloadInstallations: false);
+                    },
+              onNext: busy || !moreRepositories
+                  ? null
+                  : () {
+                      repositoryPage++;
+                      discover(reloadInstallations: false);
+                    },
+            ),
           const SizedBox(height: Space.s),
           Wrap(
             spacing: Space.s,
@@ -649,8 +746,18 @@ class _RepositoriesPageState extends State<RepositoriesPage> {
   }
 }
 
+/// Shown once in a mapping dialog that falls back to typed paths.
+const folderPickerUnavailable =
+    'The folder picker is available while the instance is online on an up-to-date plugin.';
+
 class RepositoryMappingDialog extends StatefulWidget {
-  const RepositoryMappingDialog({super.key});
+  const RepositoryMappingDialog({
+    required this.store,
+    required this.instanceId,
+    super.key,
+  });
+  final RemoteStore store;
+  final String instanceId;
   @override
   State<RepositoryMappingDialog> createState() =>
       _RepositoryMappingDialogState();
@@ -659,12 +766,12 @@ class RepositoryMappingDialog extends StatefulWidget {
 class _RepositoryMappingDialogState extends State<RepositoryMappingDialog> {
   final form = GlobalKey<FormState>();
   final url = TextEditingController();
-  final path = TextEditingController();
+  late final checkout = CheckoutPath(widget.store, widget.instanceId);
   final branch = TextEditingController(text: 'main');
   @override
   void dispose() {
     url.dispose();
-    path.dispose();
+    checkout.dispose();
     branch.dispose();
     super.dispose();
   }
@@ -672,46 +779,54 @@ class _RepositoryMappingDialogState extends State<RepositoryMappingDialog> {
   @override
   Widget build(BuildContext context) => plainDialog(
     title: const Text('Map existing checkout'),
-    content: SingleChildScrollView(
-      child: Form(
-        key: form,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'This only records a reference. The path must already exist under this host’s allowed roots; verification is a separate writer action.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: Space.l),
-            TextFormField(
-              controller: url,
-              decoration: const InputDecoration(
-                labelText: 'GitHub repository URL',
-                hintText: 'https://github.com/owner/repo',
+    content: SizedBox(
+      width: 480,
+      child: SingleChildScrollView(
+        child: Form(
+          key: form,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'This only records a reference. The path must already exist under this host’s allowed roots; verification is a separate writer action.',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
-              validator: (v) =>
-                  RegExp(
-                    r'^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$',
-                  ).hasMatch(v?.trim() ?? '')
-                  ? null
-                  : 'Use a canonical GitHub HTTPS repository URL',
-            ),
-            const SizedBox(height: Space.m),
-            TextFormField(
-              controller: path,
-              decoration: const InputDecoration(
-                labelText: 'Existing absolute checkout path',
-                hintText: '/allowed/work/repo',
+              if (!checkout.browsable) ...[
+                const SizedBox(height: Space.xs),
+                Text(
+                  folderPickerUnavailable,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+              const SizedBox(height: Space.l),
+              TextFormField(
+                controller: url,
+                decoration: const InputDecoration(
+                  labelText: 'GitHub repository URL',
+                  hintText: 'https://github.com/owner/repo',
+                ),
+                validator: (v) =>
+                    RegExp(
+                      r'^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$',
+                    ).hasMatch(v?.trim() ?? '')
+                    ? null
+                    : 'Use a canonical GitHub HTTPS repository URL',
               ),
-              validator: validateCheckoutPath,
-            ),
-            const SizedBox(height: Space.m),
-            TextFormField(
-              controller: branch,
-              decoration: const InputDecoration(labelText: 'Default branch'),
-            ),
-          ],
+              const SizedBox(height: Space.m),
+              CheckoutFolderField(
+                checkout: checkout,
+                label: checkout.browsable
+                    ? 'Checkout folder'
+                    : 'Existing absolute checkout path',
+              ),
+              const SizedBox(height: Space.m),
+              TextFormField(
+                controller: branch,
+                decoration: const InputDecoration(labelText: 'Default branch'),
+              ),
+            ],
+          ),
         ),
       ),
     ),
@@ -722,7 +837,7 @@ class _RepositoryMappingDialogState extends State<RepositoryMappingDialog> {
             Navigator.pop(context, <String, dynamic>{
               'source': 'manual',
               'url': url.text.trim(),
-              'localPath': path.text.trim(),
+              'localPath': checkout.value,
               'defaultBranch': branch.text.trim(),
             });
           }
@@ -737,23 +852,206 @@ class _RepositoryMappingDialogState extends State<RepositoryMappingDialog> {
   );
 }
 
-String? validateCheckoutPath(String? value) {
-  final path = value?.trim() ?? '';
-  if (!path.startsWith('/') ||
-      path == '/' ||
-      path.endsWith('/') ||
-      path.contains('//') ||
-      path.contains('\\') ||
-      RegExp(r'[\x00-\x1f\x7f]').hasMatch(path) ||
-      path.split('/').any((p) => p == '.' || p == '..')) {
-    return 'Use a canonical absolute path with no traversal or trailing slash';
+/// [input] as a canonical checkout path on a host with [style], or null when
+/// it cannot be one. With the style unknown, the input's own style decides.
+String? hostCheckoutPath(String? input, HostPathStyle? style) {
+  final value = input ?? '';
+  final converted = style == null
+      ? toHostPath(value, HostPathStyle.posix) ??
+            toHostPath(value, HostPathStyle.windows)
+      : toHostPath(value, style);
+  return converted != null && validateCheckoutPath(converted) == null
+      ? converted
+      : null;
+}
+
+/// Accepts a canonical absolute host path in either style, never a whole
+/// drive or filesystem.
+String? validateCheckoutPath(String? value) => isCanonicalHostPath(value ?? '')
+    ? null
+    : 'Use a canonical absolute path with no traversal or trailing slash';
+
+/// One checkout folder being entered: chosen in the host's folder picker
+/// while the instance can browse, typed otherwise. Whether it can browse is
+/// settled when the dialog opens.
+class CheckoutPath {
+  CheckoutPath(this.store, this.instanceId)
+    : browsable = canBrowseFolders(store.instance(instanceId)),
+      style = store.hostStyle(instanceId);
+  final RemoteStore store;
+  final String instanceId;
+  final bool browsable;
+
+  /// The host's path style for typed paths, as known or inferred.
+  final HostPathStyle? style;
+
+  /// The folder chosen in the picker.
+  String? chosen;
+
+  /// The typed path, converted to the host's style when it is read.
+  final typed = TextEditingController();
+
+  /// The canonical host path to record, or null when there is none yet.
+  String? get value => browsable ? chosen : hostCheckoutPath(typed.text, style);
+
+  void dispose() => typed.dispose();
+}
+
+/// The form field for a [CheckoutPath]: "Choose folder" opens the host's
+/// folder picker and the chosen path then reads back with "Change"; without
+/// the picker, a text field that converts what is typed to the host's style.
+class CheckoutFolderField extends StatefulWidget {
+  const CheckoutFolderField({
+    required this.checkout,
+    required this.label,
+    super.key,
+  });
+  final CheckoutPath checkout;
+  final String label;
+  @override
+  State<CheckoutFolderField> createState() => _CheckoutFolderFieldState();
+}
+
+class _CheckoutFolderFieldState extends State<CheckoutFolderField> {
+  final typedField = GlobalKey<FormFieldState<String>>();
+  @override
+  Widget build(BuildContext context) {
+    final checkout = widget.checkout;
+    final style = checkout.style;
+    if (!checkout.browsable) {
+      final converted = hostCheckoutPath(checkout.typed.text, style);
+      return TextFormField(
+        key: typedField,
+        controller: checkout.typed,
+        autocorrect: false,
+        enableSuggestions: false,
+        keyboardType: TextInputType.url,
+        decoration: InputDecoration(
+          labelText: widget.label,
+          hintText: style == HostPathStyle.windows
+              ? r'C:\allowed\work\repo'
+              : '/allowed/work/repo',
+          // Say what is recorded when it differs from what was typed.
+          helperText:
+              converted != null && converted != checkout.typed.text.trim()
+              ? 'Saved as $converted'
+              : null,
+        ),
+        onChanged: (_) => setState(() {
+          // A shown error goes as soon as the path is usable.
+          if (typedField.currentState?.hasError ?? false) {
+            typedField.currentState!.validate();
+          }
+        }),
+        validator: (value) => hostCheckoutPath(value, style) == null
+            ? 'Use an absolute path on this host, like ${hostPathExample(style)}.'
+            : null,
+      );
+    }
+    final colors = HarnessColors.of(context);
+    final text = Theme.of(context).textTheme;
+    return FormField<String>(
+      initialValue: checkout.chosen,
+      validator: (value) => value != null && validateCheckoutPath(value) == null
+          ? null
+          : 'Choose the existing checkout folder.',
+      builder: (field) {
+        final value = field.value;
+        Future<void> choose() async {
+          final picked = await showFolderChooser(
+            context,
+            store: checkout.store,
+            instanceId: checkout.instanceId,
+            initial: value,
+          );
+          if (picked == null || !mounted) return;
+          checkout.chosen = picked;
+          field.didChange(picked);
+          if (field.hasError) field.validate();
+        }
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.label,
+              style: text.labelMedium?.copyWith(color: colors.secondary),
+            ),
+            const SizedBox(height: Space.xs),
+            Resize(
+              child: Swap(
+                child: value == null
+                    ? OutlinedButton(
+                        key: const ValueKey('choose'),
+                        onPressed: choose,
+                        child: const Text('Choose folder'),
+                      )
+                    : Row(
+                        key: ValueKey(value),
+                        children: [
+                          Icon(
+                            Icons.folder_outlined,
+                            size: 20,
+                            color: colors.secondary,
+                          ),
+                          const SizedBox(width: Space.m),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  hostPathName(value),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: text.bodyMedium,
+                                ),
+                                Text(
+                                  value,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: text.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: Space.s),
+                          TextButton(
+                            onPressed: choose,
+                            child: const Text('Change'),
+                          ),
+                        ],
+                      ),
+              ),
+            ),
+            Reveal(
+              padding: const EdgeInsets.only(top: Space.xs),
+              child: field.errorText == null
+                  ? null
+                  : Text(
+                      field.errorText!,
+                      style: text.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+            ),
+          ],
+        );
+      },
+    );
   }
-  return null;
 }
 
 class GithubMappingsDialog extends StatefulWidget {
-  const GithubMappingsDialog({required this.repositories, super.key});
+  const GithubMappingsDialog({
+    required this.repositories,
+    required this.store,
+    required this.instanceId,
+    super.key,
+  });
   final List<JsonMap> repositories;
+  final RemoteStore store;
+  final String instanceId;
   @override
   State<GithubMappingsDialog> createState() => _GithubMappingsDialogState();
 }
@@ -761,7 +1059,8 @@ class GithubMappingsDialog extends StatefulWidget {
 class _GithubMappingsDialogState extends State<GithubMappingsDialog> {
   final form = GlobalKey<FormState>();
   late final paths = [
-    for (final _ in widget.repositories) TextEditingController(),
+    for (final _ in widget.repositories)
+      CheckoutPath(widget.store, widget.instanceId),
   ];
   @override
   void dispose() {
@@ -787,16 +1086,19 @@ class _GithubMappingsDialogState extends State<GithubMappingsDialog> {
                 'One existing host path per repository. Access is rechecked when saved; nothing is cloned, fetched or changed.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
+              if (paths.isNotEmpty && !paths.first.browsable) ...[
+                const SizedBox(height: Space.xs),
+                Text(
+                  folderPickerUnavailable,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
               for (var i = 0; i < paths.length; i++)
                 Padding(
                   padding: const EdgeInsets.only(top: Space.m),
-                  child: TextFormField(
-                    controller: paths[i],
-                    decoration: InputDecoration(
-                      labelText: widget.repositories[i]['fullName'].toString(),
-                      hintText: '/allowed/work/repo',
-                    ),
-                    validator: validateCheckoutPath,
+                  child: CheckoutFolderField(
+                    checkout: paths[i],
+                    label: widget.repositories[i]['fullName'].toString(),
                   ),
                 ),
             ],
@@ -817,7 +1119,7 @@ class _GithubMappingsDialogState extends State<GithubMappingsDialog> {
                   'page': widget.repositories[i]['page'],
                   'installationPage':
                       widget.repositories[i]['installationPage'],
-                  'localPath': paths[i].text.trim(),
+                  'localPath': paths[i].value,
                 },
             ]);
           }
