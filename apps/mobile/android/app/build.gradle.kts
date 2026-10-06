@@ -29,10 +29,25 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        // The release workflow decodes the owner's keystore from repository secrets
+        // (tool/create-release-key.ps1 creates it). No key is bundled; without these
+        // variables a release build stays unsigned.
+        val keystore = System.getenv("DSH_ANDROID_KEYSTORE")
+        if (!keystore.isNullOrEmpty()) {
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("DSH_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("DSH_ANDROID_KEY_ALIAS") ?: "dsh-remote"
+                // PKCS12 keystores use one password for the store and the key.
+                keyPassword = System.getenv("DSH_ANDROID_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Release signing must be supplied by the app owner. No key is bundled.
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 }

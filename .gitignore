@@ -19,3 +19,9 @@ ios/Flutter/flutter_export_environment.sh
 *.iml
 .DS_Store
 .wrangler/
+
+# Android release keys never belong in the repository
+*.jks
+*.p12
+*.keystore
+key.properties

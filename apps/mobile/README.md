@@ -45,6 +45,12 @@ The primary view renders user, assistant, and tool text. Raw events, projections
 
 The app does not override TLS validation. Debug cleartext networking is separate from release configuration. Registration and secure-storage APIs can fail visibly; there is no plaintext storage fallback.
 
+## Releases
+
+Pushing a `v<version>` tag (matching the version name in `pubspec.yaml` and the DSH plugin's `package.json`) runs `.github/workflows/release.yml`: it tests, builds the signed release APK and the plugin tarball, and publishes both, with `SHA256SUMS.txt`, as one GitHub release. Commits not yet on `main` become pre-releases. Bump the build number after `+` for every release so phones can upgrade.
+
+The release key is created once by the owner: `powershell -ExecutionPolicy Bypass -File apps/mobile/tool/create-release-key.ps1` generates a PKCS12 keystore with a random password (JDK 17 `keytool`), keeps it in `~/dsh-remote-android-key`, and stores it in the repository's Actions secrets through `gh`. Keep that backup: every later APK must be signed with the same key. Release builds are signed only from `DSH_ANDROID_KEYSTORE`/`DSH_ANDROID_KEYSTORE_PASSWORD`/`DSH_ANDROID_KEY_ALIAS`; without them they stay unsigned, and the workflow refuses to publish.
+
 ## Validation
 
 ```sh

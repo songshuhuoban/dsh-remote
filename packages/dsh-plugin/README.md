@@ -41,7 +41,7 @@ cd packages/dsh-plugin && npm pack        # installable tarball
 
 `@deepseek-ai/cordis` and `@deepseek-ai/schemastery` are peer dependencies resolved to DSH's own copies. The browser half (`dist/client.js`) is a single script in DSH's client-module format; it relies only on `react` from the page.
 
-Distribution: `bun run build:deploy` (which `cf:deploy` runs) packs the plugin into `apps/web/dist/plugin/` as `dsh-remote-plugin-<version>-<hash>.tgz` plus `manifest.json`, so every relay serves its own matching build as a static file. pnpm pins a tarball URL to its integrity, so the name carries a hash of the (reproducible) tarball: an address never changes content, and any plugin change gets a new one. Still bump `version` for user-visible changes. Tagging `dsh-plugin-v<version>` additionally publishes the tarball as a GitHub release (`.github/workflows/release-plugin.yml`).
+Distribution: `bun run build:deploy` (which `cf:deploy` runs) packs the plugin into `apps/web/dist/plugin/` as `dsh-remote-plugin-<version>-<hash>.tgz` plus `manifest.json`, so every relay serves its own matching build as a static file. pnpm pins a tarball URL to its integrity, so the name carries a hash of the (reproducible) tarball: an address never changes content, and any plugin change gets a new one. Still bump `version` for user-visible changes. Tagging `v<version>` additionally publishes the tarball, together with the Android app, as a GitHub release (`.github/workflows/release.yml`).
 
 ## Behavior limits
 
