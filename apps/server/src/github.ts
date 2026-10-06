@@ -7,6 +7,7 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 import { initializeGitHubStore } from './github-store.ts';
+import { isCanonicalHostPath } from '../../../packages/protocol/src/host-path.ts';
 
 type Row = Record<string, string | number | null>;
 export type GitHubAuth = { userId: string; controllerId: string; tokenHash: string };
@@ -95,15 +96,8 @@ export function repositoryBranch(value: unknown): string {
 }
 export function repositoryPath(value: unknown): string {
   const path = text(value, 'localPath', 4096);
-  if (
-    !path.startsWith('/') ||
-    path === '/' ||
-    path.includes('\\') ||
-    path
-      .split('/')
-      .slice(1)
-      .some((p) => !p || p === '.' || p === '..')
-  )
+  // POSIX or Windows host, canonical either way; the host verifies the folder itself.
+  if (!isCanonicalHostPath(path))
     return fail(
       400,
       'INVALID_REPOSITORY_PATH',

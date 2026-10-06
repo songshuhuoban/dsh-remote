@@ -54,6 +54,8 @@ test('lists the allowed folders and browses only inside them, folders only', asy
   expect(await a.execute('workspace.list', {})).toEqual({
     roots: [{ name: root.split(/[\\/]/).at(-1)!, path: root }],
     anyWorkspace: false,
+    style: process.platform === 'win32' ? 'windows' : 'posix',
+    home: null,
   });
   const start = (await a.execute('workspace.browse', {})) as any;
   expect(start.directories.map((d: any) => d.path)).toEqual([root]);
@@ -106,6 +108,19 @@ test('with "any folder" allowed on the DSH computer, its other folders open too'
   expect(other.directories.map((d: any) => d.name)).toEqual(['private']);
   await a.execute('session.create', { sessionId: 'x', cwd: join(outside, 'private') }, () => {});
   expect(created).toEqual([{ sessionId: 'x', cwd: join(outside, 'private') }]);
+  a.dispose();
+});
+
+test('a path pasted in another form is converted by the host before browsing', async () => {
+  const { adapter: a } = adapter({ allowedWorkspaceRoots: [root] });
+  // Forward slashes, quotes and a file: URL all reach the same folder.
+  const forward = root.replace(/\\/g, '/');
+  const fileUrl = new URL(`file:///${forward.replace(/^\//, '')}/alpha`).href;
+  for (const pasted of [forward, `"${join(root, 'alpha')}"`, fileUrl]) {
+    const listing = (await a.execute('workspace.browse', { path: pasted })) as any;
+    expect([root, join(root, 'alpha')]).toContain(listing.path);
+  }
+  expect(await code(a.execute('workspace.browse', { path: 'relative/folder' }))).toBe('not_found');
   a.dispose();
 });
 

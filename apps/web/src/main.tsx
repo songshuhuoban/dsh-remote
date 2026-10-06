@@ -94,6 +94,8 @@ import {
   PairInstance,
   PairingLanding,
   PairingPanel,
+  CopyField,
+  usePluginPackage,
   requestPairing,
   type Pairing,
 } from './pairing';
@@ -389,7 +391,8 @@ function Console({ identity }: { identity: Identity }) {
       | null
     >(null),
     [notice, setNotice] = useState(''),
-    [clock, setClock] = useState(Date.now()),
+    // Bumped by timers to re-render when time changes what is shown (see below).
+    [, setClock] = useState(0),
     [tab, setTab] = useState<'conversation' | 'repositories'>('conversation'),
     [writeSuspended, setWriteSuspended] = useState(false),
     // Instances this tab only watches: control was declined, released or taken by another device.
@@ -423,7 +426,19 @@ function Console({ identity }: { identity: Identity }) {
     return () => media?.removeEventListener('change', apply);
   }, [theme]);
   useEffect(() => {
-    const result = new URLSearchParams(location.search).get('github');
+    // Back from installing the GitHub App: GitHub appends installation_id and setup_action.
+    const params = new URLSearchParams(location.search);
+    if (params.has('setup_action') || params.has('installation_id')) {
+      setTab('repositories');
+      setNotice('GitHub 安装已更新，正在读取可映射的仓库');
+      void client.invalidateQueries({ queryKey: ['github'] });
+      void navigate({
+        search: { instance: search.instance, session: search.session },
+        replace: true,
+      });
+      return;
+    }
+    const result = params.get('github');
     if (!result) return;
     // A completed "Sign in with GitHub" lands here signed in; nothing to report.
     if (result === 'signed_in') {
@@ -502,9 +517,9 @@ function Console({ identity }: { identity: Identity }) {
       online &&
       eventStream.state === 'live' &&
       !writeSuspended &&
-      leaseActive(lease, clock) &&
+      leaseActive(lease, Date.now()) &&
       lease?.controllerId === identity.controller.id,
-    occupied = leaseActive(lease, clock) && lease?.controllerId !== identity.controller.id;
+    occupied = leaseActive(lease, Date.now()) && lease?.controllerId !== identity.controller.id;
   useEffect(() => {
     if (eventStream.state === 'live') hadLive.current = true;
     else if (hadLive.current) setWriteSuspended(true);
@@ -614,10 +629,18 @@ function Console({ identity }: { identity: Identity }) {
       client.removeQueries({ predicate: (query) => query.queryKey[0] !== 'me' });
     },
   });
+  // Re-render on time only when time changes what is shown: the reconnect countdown, or the
+  // moment a lease expires. A once-a-second tick of the whole console costs CPU for nothing.
   useEffect(() => {
-    const timer = setInterval(() => setClock(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+    if (eventStream.state !== 'live' && eventStream.health.nextRetryAt) {
+      const timer = setInterval(() => setClock(Date.now()), 1000);
+      return () => clearInterval(timer);
+    }
+    const expires = lease?.expiresAt ? new Date(lease.expiresAt).getTime() - Date.now() : 0;
+    if (expires <= 0) return;
+    const timer = setTimeout(() => setClock(Date.now()), expires + 50);
+    return () => clearTimeout(timer);
+  }, [eventStream.state, eventStream.health.nextRetryAt, lease?.expiresAt]);
   useEffect(() => {
     if (!holding || !id) return;
     let running = false;
@@ -637,14 +660,13 @@ function Console({ identity }: { identity: Identity }) {
     return () => clearInterval(timer);
   }, [holding, id, identity.controller.id, client]);
   const streamLive = eventStream.state === 'live',
-    latencyMs = eventStream.health.latencyMs,
     retryIn = eventStream.health.nextRetryAt
-      ? Math.max(0, Math.ceil((eventStream.health.nextRetryAt - clock) / 1000))
+      ? Math.max(0, Math.ceil((eventStream.health.nextRetryAt - Date.now()) / 1000))
       : 0,
     statusText = !instance
       ? ''
       : streamLive
-        ? `${statusLabel(instance)}${latencyMs !== undefined && online ? ` · ${latencyMs} ms` : ''}`
+        ? statusLabel(instance)
         : eventStream.state === 'offline'
           ? '网络离线'
           : retryIn
@@ -671,7 +693,7 @@ function Console({ identity }: { identity: Identity }) {
     resumedLease.current = key;
     leaseMutation.mutate({}, { onSuccess: () => setNotice('连接已恢复') });
   }, [writeSuspended, streamLive, online, id, lease?.controllerId, lease?.epoch, lease?.expiresAt]);
-  const leaseHolder = leaseActive(lease, clock) ? lease?.controllerId : undefined,
+  const leaseHolder = leaseActive(lease, Date.now()) ? lease?.controllerId : undefined,
     previousHolder = useRef({ id, holder: leaseHolder });
   useEffect(() => {
     const before = previousHolder.current;
@@ -886,9 +908,9 @@ function Console({ identity }: { identity: Identity }) {
           </Button>
           {instance ? (
             <>
-              <h1 className="min-w-0 truncate text-md font-medium">{instance.name}</h1>
+              <h1 className="min-w-0 truncate text-md leading-5 font-medium">{instance.name}</h1>
               <button
-                className="flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-sm leading-5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 onClick={() => (streamLive ? setModal('status') : eventStream.retry())}
                 aria-label={streamLive ? `实例状态：${statusText}` : `${statusText}，点击立即重连`}
               >
@@ -926,11 +948,7 @@ function Console({ identity }: { identity: Identity }) {
                     }
                     className={cn('group min-w-[84px]', controlState === 'held' && 'text-success')}
                     disabled={leaseMutation.isPending}
-                    title={
-                      holding
-                        ? `${Math.max(0, Math.ceil((new Date(lease!.expiresAt).getTime() - clock) / 1000))}s 后自动续期`
-                        : undefined
-                    }
+                    title={holding ? '控制中，自动续期' : undefined}
                     aria-label={holding ? '控制中，点击释放' : undefined}
                     onClick={() => {
                       if (!holding) return takeControl();
@@ -1087,8 +1105,6 @@ function Console({ identity }: { identity: Identity }) {
           <dl className="grid grid-cols-[96px_1fr] gap-x-4 gap-y-2.5 text-base">
             <dt className="text-caption">状态</dt>
             <dd>{statusLabel(instance)}</dd>
-            <dt className="text-caption">中继延迟</dt>
-            <dd>{latencyMs !== undefined ? `${latencyMs} ms` : '—'}</dd>
             <dt className="text-caption">最近心跳</dt>
             <dd>{timeLabel(instance.lastSeenAt)}</dd>
             <dt className="text-caption">连接于</dt>
@@ -1509,8 +1525,7 @@ function CreateSession({
 }) {
   // Plugins before the folder picker only take a typed path.
   const browsable = capabilities.includes('workspace.browse');
-  const [cwd, setCwd] = useState(''),
-    [picked, setPicked] = useState<string>(),
+  const [picked, setPicked] = useState<string>(),
     [createdSessionId] = useState(() => crypto.randomUUID()),
     client = useQueryClient(),
     operations = useOperations(),
@@ -1529,16 +1544,7 @@ function CreateSession({
           instanceId,
           controllerId,
           action: 'session.create',
-          args: {
-            sessionId: createdSessionId,
-            ...(browsable
-              ? picked
-                ? { cwd: picked }
-                : {}
-              : cwd.trim()
-                ? { cwd: cwd.trim() }
-                : {}),
-          },
+          args: { sessionId: createdSessionId, ...(browsable && picked ? { cwd: picked } : {}) },
           leaseEpoch: lease.epoch,
           references: {},
         }),
@@ -1568,20 +1574,14 @@ function CreateSession({
             onChange={setPicked}
           />
         ) : (
-          <Field label="工作目录">
-            <Input
-              autoFocus
-              value={cwd}
-              onChange={(e) => setCwd(e.target.value)}
-              placeholder="默认：第一个允许的目录"
-            />
-          </Field>
+          <OutdatedPlugin />
         )}
         <Err error={mutation.error} />
         <RecoveryPanel instanceId={instanceId} />
         <Actions>
           <Button disabled={!lease || mutation.isPending || (browsable && !picked)}>
-            {mutation.isPending ? <Spinner /> : null}创建会话
+            {mutation.isPending ? <Spinner /> : null}
+            {browsable ? '创建会话' : '在默认目录创建'}
           </Button>
           <Button type="button" variant="outline" onClick={onClose}>
             取消
@@ -1589,6 +1589,19 @@ function CreateSession({
         </Actions>
       </form>
     </Modal>
+  );
+}
+/** For a host plugin that cannot browse folders yet: how to update it, never a typed path. */
+function OutdatedPlugin() {
+  const plugin = usePluginPackage();
+  return (
+    <div className="grid gap-3 rounded-xl bg-accent/70 p-3.5">
+      <p className="text-base text-muted-foreground">
+        这台实例的 DSH Remote 插件版本较旧，不能远程浏览目录。在 DSH
+        的插件页用下面的地址更新插件后，即可在这里选择文件夹；现在也可以先在它的默认目录创建。
+      </p>
+      {plugin ? <CopyField label="插件地址" value={plugin.url} /> : null}
+    </div>
   );
 }
 function EventLog({ events }: { events: RemoteEvent[] }) {

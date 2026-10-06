@@ -154,8 +154,15 @@ describe('GitHub configuration and repository input', () => {
       'relative',
       '/allowed/repo/',
       '/allowed/repo\n',
+      'E:/work/repo',
+      'E:\\work\\..\\secret',
+      'E:\\work\\repo\\',
+      'C:\\',
     ])
       expect(() => repositoryPath(value)).toThrow();
+    // Hosts run Windows too: canonical drive and UNC paths map like POSIX ones.
+    for (const value of ['/allowed/repo', 'E:\\work\\repo', '\\\\nas\\share\\repo'])
+      expect(repositoryPath(value)).toBe(value);
     for (const value of [
       '--upload-pack=evil',
       'main;\ncommand',

@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { inspectRepository, repositoryPromptContext } from './repositories.ts';
 import type { RepositoryContext } from '../../protocol/src/index.ts';
+import { toHostPath, type HostPathStyle } from '../../protocol/src/host-path.ts';
 import { validateCommand } from '../../protocol/src/validation.ts';
 import type {
   Agent,
@@ -36,6 +37,8 @@ export const CAPABILITIES = [
   'workspace.list',
   'workspace.browse',
 ];
+/** This host's path style, so controllers on other systems can display and convert paths. */
+const HOST_STYLE: HostPathStyle = process.platform === 'win32' ? 'windows' : 'posix';
 /** Folders listed per browse request; a larger folder is reported as truncated. */
 const MAX_BROWSE_ENTRIES = 500;
 /** Where browsing anywhere starts: the home folder, then each drive (Windows) or `/`. */
@@ -248,9 +251,13 @@ export class DshAdapter {
         truncated: false,
       };
     }
+    // A controller may paste a path from another system or as a file: URL; convert it first.
+    const converted = toHostPath(String(path), HOST_STYLE);
+    if (!converted) throw new AdapterError('not_found', 'Not an absolute path on this computer');
+    const expanded = converted.startsWith('~') ? join(homedir(), converted.slice(1)) : converted;
     let target: string;
     try {
-      target = realpathSync(String(path));
+      target = realpathSync(expanded);
     } catch {
       throw new AdapterError('not_found', 'Folder does not exist on this computer');
     }
@@ -483,6 +490,8 @@ export class DshAdapter {
         return {
           roots: this.roots().map((path) => ({ name: basename(path) || path, path })),
           anyWorkspace: !!this.policy.allowAnyWorkspace,
+          style: HOST_STYLE,
+          home: this.policy.allowAnyWorkspace ? homedir() : null,
         };
       case 'workspace.browse':
         only(args, ['path']);

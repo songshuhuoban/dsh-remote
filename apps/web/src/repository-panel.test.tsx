@@ -112,9 +112,9 @@ describe('GitHub repository UI contract fixtures (no external OAuth)', () => {
       refs.push(row);
       return { repository: row } as never;
     });
-    await screen.findByRole('option', { name: /fixture/ });
-    fireEvent.change(await screen.findByLabelText('GitHub 安装'), { target: { value: '81' } });
+    // The only installation is picked automatically; its repositories list at once.
     fireEvent.click(await screen.findByLabelText(/fixture\/one/));
+    expect(screen.queryByLabelText('GitHub 安装')).toBeNull();
     fireEvent.click(screen.getByLabelText(/fixture\/two/));
     fireEvent.click(screen.getByRole('button', { name: '映射到 Host' }));
     fireEvent.change(screen.getByLabelText('fixture/one · 已有工作树绝对路径'), {

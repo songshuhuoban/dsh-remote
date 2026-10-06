@@ -46,6 +46,7 @@ export function useEvents(enabled: boolean) {
     let socket: WebSocket | undefined,
       reconnect: ReturnType<typeof setTimeout>,
       refresh: ReturnType<typeof setTimeout> | undefined,
+      pendingRemote = false,
       closed = false,
       attempts = 0,
       lastFrameAt = 0,
@@ -163,17 +164,26 @@ export function useEvents(enabled: boolean) {
             };
           });
         }
-        // Read-command completion must not invalidate itself and form a request loop.
+        // What an event invalidates. Command completions never do: a read would refresh itself
+        // forever. Lease and status changes are relay state (the instance list); only events
+        // from the host's sessions refresh host data, which costs a relayed command per query.
+        // Lease renewals arrive every few seconds, so they must not re-read the host.
         if (
           !event.kind.startsWith('command.') &&
-          (event.kind !== 'assistant.stream' || payload.type === 'end') &&
-          !refresh
-        )
-          refresh = setTimeout(() => {
+          (event.kind !== 'assistant.stream' || payload.type === 'end')
+        ) {
+          const relayOnly =
+            event.kind.startsWith('lease.') ||
+            event.kind === 'instance.status' ||
+            event.kind === 'instance.paired';
+          pendingRemote ||= !relayOnly;
+          refresh ??= setTimeout(() => {
             refresh = undefined;
             void client.invalidateQueries({ queryKey: ['instances'] });
-            void client.invalidateQueries({ queryKey: ['remote'] });
+            if (pendingRemote) void client.invalidateQueries({ queryKey: ['remote'] });
+            pendingRemote = false;
           }, 700);
+        }
       };
       current.onerror = () => current.close();
       current.onclose = () => {

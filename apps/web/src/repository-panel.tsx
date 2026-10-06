@@ -30,8 +30,63 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { useOperations } from './operations';
+import { FolderField } from './workspace-picker';
+import { toHostPath } from '../../../packages/protocol/src/host-path.ts';
 
 type Choice = { repo: GitHubRepository; page: number; installationPage: number; localPath: string };
+/**
+ * A typed fallback path in the host's own form: separators, quotes, `file:` URLs and a lower-case
+ * drive are converted (the style follows the path itself). Traversal is left for the check to
+ * refuse rather than silently resolved.
+ */
+function typedHostPath(input: string) {
+  if (/(^|[\\/])\.\.([\\/]|$)/.test(input)) return input.trim();
+  const style = /^\s*["']?(?:[A-Za-z]:|[\\/]{2}|file:\/\/\/[A-Za-z]:)/i.test(input)
+    ? 'windows'
+    : 'posix';
+  return toHostPath(input, style) ?? input.trim();
+}
+/**
+ * Where a checkout lives on the host: chosen with the remote folder browser when the instance
+ * can browse, typed (and converted to the host's form) only when it cannot.
+ */
+function CheckoutPath({
+  label,
+  instance,
+  controllerId,
+  value,
+  onChange,
+}: {
+  label: string;
+  instance?: Instance;
+  controllerId: string;
+  value: string;
+  onChange: (path: string) => void;
+}) {
+  const browsable =
+    !!instance && isOnline(instance) && !!instance.capabilities?.includes('workspace.browse');
+  if (browsable)
+    return (
+      <FolderField
+        label={label}
+        instanceId={instance!.id}
+        controllerId={controllerId}
+        value={value || undefined}
+        onChange={onChange}
+      />
+    );
+  return (
+    <Field label={`${label}绝对路径`} hint="实例在线且插件为最新版本时，可直接浏览选择文件夹。">
+      <Input
+        required
+        className="font-mono text-sm"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={'/home/me/repo 或 D:\\repo'}
+      />
+    </Field>
+  );
+}
 export function RepositoryPanel({
   instance,
   controller,
@@ -82,6 +137,10 @@ export function RepositoryPanel({
         { signal },
       ),
   });
+  useEffect(() => {
+    const first = installations.data?.installations[0];
+    if (installation === undefined && first) setInstallation(first.id);
+  }, [installations.data, installation]);
   const repositories = useQuery({
     queryKey: ['github', 'repositories', installation, page, installationPage],
     enabled: connected && !!installation,
@@ -112,7 +171,9 @@ export function RepositoryPanel({
   const mapping = useMutation({
     mutationFn: async (rows: Mapping[]) => {
       if (!instance) throw new Error('请先选择目标实例');
+      rows = rows.map((row) => ({ ...row, localPath: typedHostPath(row.localPath) }));
       for (const row of rows) {
+        if (!row.localPath) throw new Error('请选择已有工作树所在的文件夹');
         const error = canonicalPathError(row.localPath);
         if (error) throw new Error(error);
       }
@@ -274,9 +335,6 @@ export function RepositoryPanel({
           <div className="flex flex-wrap gap-2">
             {connected ? (
               <>
-                <Button size="sm" disabled={install.isPending} onClick={() => install.mutate()}>
-                  选择 GitHub 授权仓库
-                </Button>
                 <Button size="sm" variant="outline" onClick={reload} disabled={status.isFetching}>
                   <RefreshCw size={14} />
                   刷新状态
@@ -311,61 +369,105 @@ export function RepositoryPanel({
         </section>
         {connected && (
           <section className={card}>
-            <div className="flex flex-wrap items-end gap-2">
-              <Field label="GitHub 安装" className="min-w-[220px] flex-1">
-                <NativeSelect
-                  aria-label="GitHub 安装"
-                  value={installation ?? ''}
-                  onChange={(e) => {
-                    setInstallation(Number(e.target.value));
-                    setPage(1);
-                  }}
-                >
-                  <option value="" disabled>
-                    选择组织或个人安装
-                  </option>
-                  {installations.data?.installations.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.account.login} ·{' '}
-                      {item.repositorySelection === 'all' ? '全部授权仓库' : '指定授权仓库'}
+            {installations.isPending ? (
+              <p className="flex items-center gap-2 text-sm text-caption">
+                <Spinner />
+                读取 GitHub 安装…
+              </p>
+            ) : !installations.error && !installations.data?.installations.length ? (
+              <div className="grid justify-items-start gap-3">
+                <div className="grid gap-1">
+                  <h3 className="text-md font-medium">在 GitHub 上安装 DSH Remote</h3>
+                  <p className="text-base text-muted-foreground">
+                    GitHub
+                    只向第三方开放你在安装时选择的仓库。安装并选择仓库后会自动回到这里，列出可映射的仓库。
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" disabled={install.isPending} onClick={() => install.mutate()}>
+                    {install.isPending ? <Spinner /> : <GitHubMark size={14} />}在 GitHub
+                    上安装并选择仓库
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={reload}>
+                    <RefreshCw size={14} />
+                    已安装，刷新
+                  </Button>
+                </div>
+              </div>
+            ) : (installations.data?.installations.length ?? 0) > 1 ||
+              installationPage > 1 ||
+              installations.data?.hasMore ? (
+              <div className="flex flex-wrap items-end gap-2">
+                <Field label="GitHub 安装" className="min-w-[220px] flex-1">
+                  <NativeSelect
+                    aria-label="GitHub 安装"
+                    value={installation ?? ''}
+                    onChange={(e) => {
+                      setInstallation(Number(e.target.value));
+                      setPage(1);
+                    }}
+                  >
+                    <option value="" disabled>
+                      选择组织或个人安装
                     </option>
-                  ))}
-                </NativeSelect>
-              </Field>
-              <div className="flex items-center gap-1">
+                    {installations.data?.installations.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.account.login} ·{' '}
+                        {item.repositorySelection === 'all' ? '全部授权仓库' : '指定授权仓库'}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Field>
+                {installationPage > 1 || installations.data?.hasMore ? (
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={installationPage <= 1}
+                      onClick={() => {
+                        setInstallationPage((n) => n - 1);
+                        setInstallation(undefined);
+                      }}
+                    >
+                      上一页安装
+                    </Button>
+                    <span className={cn(meta, 'tabular-nums')}>安装页 {installationPage}</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={!installations.data?.hasMore}
+                      onClick={() => {
+                        setInstallationPage((n) => n + 1);
+                        setInstallation(undefined);
+                      }}
+                    >
+                      下一页安装
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-base">
+                  {installations.data?.installations[0]?.account.login}
+                  <span className="text-muted-foreground">
+                    {' · '}
+                    {installations.data?.installations[0]?.repositorySelection === 'all'
+                      ? '全部授权仓库'
+                      : '指定授权仓库'}
+                  </span>
+                </p>
                 <Button
                   size="sm"
-                  variant="ghost"
-                  disabled={installationPage <= 1}
-                  onClick={() => {
-                    setInstallationPage((n) => n - 1);
-                    setInstallation(undefined);
-                  }}
+                  variant="quiet"
+                  disabled={install.isPending}
+                  onClick={() => install.mutate()}
                 >
-                  上一页安装
-                </Button>
-                <span className={cn(meta, 'tabular-nums')}>安装页 {installationPage}</span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={!installations.data?.hasMore}
-                  onClick={() => {
-                    setInstallationPage((n) => n + 1);
-                    setInstallation(undefined);
-                  }}
-                >
-                  下一页安装
+                  在 GitHub 上调整仓库
                 </Button>
               </div>
-            </div>
+            )}
             <Err error={installations.error || repositories.error} />
-            {!installations.isPending &&
-              !installations.error &&
-              !installations.data?.installations.length && (
-                <p className="text-base text-muted-foreground">
-                  没有可用安装。请在 GitHub 上选择仓库，然后返回刷新
-                </p>
-              )}
             {!!installation && (
               <>
                 <Field label="筛选本页仓库">
@@ -589,35 +691,30 @@ export function RepositoryPanel({
                 <Field label="默认分支">
                   <Input required value={branch} onChange={(e) => setBranch(e.target.value)} />
                 </Field>
-                <Field label="已有工作树绝对路径">
-                  <Input
-                    required
-                    className="font-mono text-sm"
-                    value={path}
-                    onChange={(e) => setPath(e.target.value)}
-                    placeholder="/allowed/existing/repo"
-                  />
-                </Field>
+                <CheckoutPath
+                  label="已有工作树"
+                  instance={instance}
+                  controllerId={controller.id}
+                  value={path}
+                  onChange={setPath}
+                />
               </>
             ) : (
               choices.map((choice) => (
-                <Field key={choice.repo.id} label={`${choice.repo.fullName} · 已有工作树绝对路径`}>
-                  <Input
-                    required
-                    className="font-mono text-sm"
-                    value={choice.localPath}
-                    onChange={(e) =>
-                      setChoices((old) =>
-                        old.map((item) =>
-                          item.repo.id === choice.repo.id
-                            ? { ...item, localPath: e.target.value }
-                            : item,
-                        ),
-                      )
-                    }
-                    placeholder="/allowed/existing/repo"
-                  />
-                </Field>
+                <CheckoutPath
+                  key={choice.repo.id}
+                  label={`${choice.repo.fullName} · 已有工作树`}
+                  instance={instance}
+                  controllerId={controller.id}
+                  value={choice.localPath}
+                  onChange={(localPath) =>
+                    setChoices((old) =>
+                      old.map((item) =>
+                        item.repo.id === choice.repo.id ? { ...item, localPath } : item,
+                      ),
+                    )
+                  }
+                />
               ))
             )}
             <Err error={mapping.error} />

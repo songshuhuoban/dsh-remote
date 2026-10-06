@@ -211,7 +211,9 @@ it('connecting takes free control, a takeover leaves this tab watching, and taki
   expect(dialog.queryByRole('textbox')).toBeNull();
   fireEvent.click(dialog.getByRole('button', { name: '浏览其他目录' }));
   fireEvent.click(await dialog.findByRole('button', { name: /^api/ }));
-  expect(await dialog.findByText('/srv/proj/api')).toBeTruthy();
+  // The location reads as breadcrumbs in the host's own style, ending at the current folder.
+  const here = await dialog.findByText('api', { selector: '[aria-current]' });
+  expect(here.closest('nav')?.textContent).toBe('此电脑/srvprojapi');
   expect(dialog.getByText('没有子文件夹')).toBeTruthy();
   fireEvent.click(dialog.getByRole('button', { name: '使用此目录' }));
   const chosen = await dialog.findByRole('radio', { name: /api/ });

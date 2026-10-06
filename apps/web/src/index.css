@@ -143,7 +143,7 @@ body[data-ds-dark-theme] {
 @layer utilities {
   /* State changes swap content in place with a short fade and lift (docs/design/minimal-ui.md). */
   .swap {
-    animation: swap-in 180ms var(--ds-ease-in-out) both;
+    animation: swap-in 180ms var(--ds-ease-in-out) backwards;
   }
   @keyframes swap-in {
     from {

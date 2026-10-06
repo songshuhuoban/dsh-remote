@@ -1,6 +1,6 @@
 {
   "name": "@dsh-remote/plugin",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Control this DSH computer from the DSH Remote web console and mobile app.",
   "type": "module",
   "main": "dist/index.js",

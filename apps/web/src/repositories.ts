@@ -1,4 +1,5 @@
 import { api, post } from './api';
+import { isCanonicalHostPath } from '../../../packages/protocol/src/host-path.ts';
 
 export type GitHubStatus = {
   configured: boolean;
@@ -108,14 +109,7 @@ export function contextPreview(reference: RepositoryReference) {
   };
 }
 export function canonicalPathError(path: string): string | null {
-  if (
-    !path.startsWith('/') ||
-    path === '/' ||
-    path.endsWith('/') ||
-    path.includes('//') ||
-    /[\\\x00-\x1f\x7f]/.test(path) ||
-    path.split('/').some((part) => part === '.' || part === '..')
-  )
+  if (!isCanonicalHostPath(path))
     return '请输入已有工作树的规范绝对路径，不要使用相对路径、重复斜线或路径跳转';
   return null;
 }

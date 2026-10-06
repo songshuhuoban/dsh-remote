@@ -3,6 +3,7 @@
  * SessionPageRequest and canonical attachment admission. No Host API is invoked.
  */
 import { isAction, MAX_FRAME_BYTES, type Action } from './index.ts';
+import { isCanonicalHostPath } from './host-path.ts';
 
 export const WIRE_LIMITS = Object.freeze({
   depth: 16,
@@ -211,13 +212,10 @@ function page(args: Record<string, unknown>): void {
   }
 }
 function repositoryPath(value: unknown): void {
-  text(value, 'repository path');
-  if (
-    /[\u0000-\u001f\u007f]/.test(value) ||
-    !value.startsWith('/') ||
-    value.split('/').includes('..')
-  )
-    fail('repository path must be an absolute path without traversal or controls');
+  text(value, 'repository path', 4096);
+  // The host may be Windows or POSIX: either style, canonical (see host-path.ts).
+  if (!isCanonicalHostPath(value))
+    fail('repository path must be a canonical absolute host path without traversal or controls');
 }
 function repositoryUrl(value: unknown): void {
   text(value, 'expectedRemoteUrl', 256);
