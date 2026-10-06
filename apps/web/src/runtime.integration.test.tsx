@@ -202,7 +202,9 @@ it('actual DSH: login, explicit takeover, create session, prompt, durable respon
   fireEvent.click(screen.getByRole('button', { name: /控制中，点击释放/ }));
   // Released on purpose: the console must not take it straight back.
   expect(await screen.findByRole('button', { name: '开始控制' })).toBeTruthy();
-  expect((screen.getByRole('button', { name: '发送消息' }) as HTMLButtonElement).disabled).toBe(
-    true,
-  );
+  // Read-only now: the composer's one action (send, or stop while the run continues) is off.
+  const action =
+    screen.queryByRole('button', { name: '发送消息' }) ??
+    screen.getByRole('button', { name: '停止任务' });
+  expect((action as HTMLButtonElement).disabled).toBe(true);
 });

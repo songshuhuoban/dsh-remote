@@ -113,7 +113,8 @@ test('actual DSH browser flow: takeover, history, prompt, file, model, queue, ap
   await page.getByRole('button', { name: '停止任务', exact: true }).click();
   await expect(page.getByText('等待你的审批', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: /控制中，点击释放/ }).click();
-  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
+  // Read-only now: the composer's one action (send, or stop while the run continues) is off.
+  await expect(page.getByRole('button', { name: /^(发送消息|停止任务)$/ })).toBeDisabled();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: '打开导航' }).click();
   await expect(page.locator('.sidebar.open')).toBeVisible();
