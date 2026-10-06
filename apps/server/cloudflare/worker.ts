@@ -156,6 +156,25 @@ export default {
     const { pathname } = new URL(request.url);
     if (pathname.startsWith('/plugin/')) return pluginAsset(request, env);
     if (!RELAY_PATHS.test(pathname)) return env.ASSETS.fetch(request);
-    return env.RELAY.get(env.RELAY.idFromName('relay')).fetch(request);
+    try {
+      return await env.RELAY.get(env.RELAY.idFromName('relay')).fetch(request);
+    } catch (error) {
+      // The object itself failed, e.g. the free plan's daily Durable Object quota ran out
+      // ("Exceeded allowed ... in Durable Objects free tier"): say so instead of a bare 500.
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('Relay object failed', message);
+      const quota = /free tier|exceeded/i.test(message);
+      return Response.json(
+        {
+          error: quota
+            ? {
+                code: 'RELAY_QUOTA',
+                message: "The relay used up today's Cloudflare quota; it resets at 00:00 UTC",
+              }
+            : { code: 'RELAY_UNAVAILABLE', message: 'The relay is temporarily unavailable' },
+        },
+        { status: 503, headers: { 'Cache-Control': 'no-store' } },
+      );
+    }
   },
 } satisfies ExportedHandler<Env>;

@@ -96,6 +96,8 @@ const ERROR_TEXT: Record<string, string> = {
   INSTANCE_OFFLINE: 'DSH 实例当前离线',
   COMMAND_QUOTA: '待确认的命令过多，请稍后再试',
   TOO_LARGE: '请求内容过大',
+  RELAY_QUOTA: '中继今天的 Cloudflare 免费额度已用完，将在 UTC 0 点（北京时间 8 点）恢复',
+  RELAY_UNAVAILABLE: '中继暂时不可用，请稍后再试',
 };
 export const errorText = (error: unknown): string =>
   error instanceof Error
