@@ -29,6 +29,12 @@ export interface Env {
 }
 
 const RELAY_PATHS = /^\/(?:health$|api\/|ws\/|github\/)/;
+/** Connector heartbeats, answered by the runtime without waking the object. */
+const HEARTBEAT = '{"v":1,"type":"ping"}';
+const HEARTBEAT_REPLY = '{"v":1,"type":"pong"}';
+const PRUNE_EVERY_MS = 24 * 60 * 60 * 1000;
+/** Close codes a server may not send; a socket closed with one is closed normally instead. */
+const RESERVED_CLOSE_CODES = new Set([1004, 1005, 1006, 1015]);
 
 /** Durable Object SQLite behind the relay's synchronous database interface. */
 function durableDatabase(storage: DurableObjectStorage): SqlDatabase {
@@ -54,9 +60,18 @@ function durableDatabase(storage: DurableObjectStorage): SqlDatabase {
 /**
  * The whole relay lives in one Durable Object: like the Bun process, it is the single writer
  * for leases, fences and command admission, and owns every live WebSocket.
+ *
+ * Its sockets are hibernatable, and Cloudflare answers Host heartbeats itself: with no console
+ * open and no command waiting, the object sleeps, accrues no duration, and Hosts stay connected.
+ * Each socket's state is saved as its attachment, so a wake restores it before handling events.
  */
 export class RelayObject extends DurableObject<Env> {
   private readonly core: RelayCore;
+  private readonly sockets = new Map<
+    WebSocket,
+    { relay: RelaySocket; closed: boolean; saved: string }
+  >();
+  private sweeper?: ReturnType<typeof setInterval>;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -82,10 +97,20 @@ export class RelayObject extends DurableObject<Env> {
             ? retentionDays * 24 * 60 * 60 * 1000
             : undefined,
       },
-      { passwords: pbkdf2Passwords },
+      { passwords: pbkdf2Passwords, hibernates: true },
     );
-    // The core's sweep also sends viewer keepalives, which Cloudflare needs: it has no server pings.
-    setInterval(() => this.core.sweep(), this.core.sweepIntervalMs);
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(HEARTBEAT, HEARTBEAT_REPLY));
+    for (const ws of ctx.getWebSockets()) {
+      const data = ws.deserializeAttachment() as SocketData | null;
+      if (data) this.core.restore(this.wrap(ws, data));
+      else ws.close(1011, 'Relay restarted');
+    }
+    this.core.recover();
+    ctx.blockConcurrencyWhile(async () => {
+      if ((await ctx.storage.getAlarm()) === null)
+        await ctx.storage.setAlarm(Date.now() + 60 * 60 * 1000);
+    });
+    this.settle();
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -93,51 +118,112 @@ export class RelayObject extends DurableObject<Env> {
       ip: request.headers.get('CF-Connecting-IP') ?? 'unknown',
       upgrade: (data) => this.upgrade(request, data),
     });
+    this.settle();
     return response ?? new Response(null, { status: 500 });
+  }
+
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    const entry = this.sockets.get(ws);
+    if (!entry || entry.closed) return;
+    const size = typeof message === 'string' ? message.length : message.byteLength;
+    if (size > MAX_FRAME_BYTES) entry.relay.close(1009, 'Frame too large');
+    else this.core.message(entry.relay, message);
+    this.settle();
+  }
+
+  async webSocketClose(ws: WebSocket, code: number, reason: string) {
+    try {
+      ws.close(RESERVED_CLOSE_CODES.has(code) ? 1000 : code, reason);
+    } catch {
+      // Already closed.
+    }
+    this.finish(ws);
+  }
+
+  async webSocketError(ws: WebSocket) {
+    this.finish(ws);
+  }
+
+  /** Daily pruning of old events and commands. */
+  async alarm() {
+    this.core.prune();
+    await this.ctx.storage.setAlarm(Date.now() + PRUNE_EVERY_MS);
   }
 
   private upgrade(request: Request, data: SocketData): Response | false {
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return false;
     const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
-    server.accept();
-    let closed = false;
-    const relay: RelaySocket = {
+    this.ctx.acceptWebSocket(server);
+    this.core.open(this.wrap(server, data));
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  private wrap(ws: WebSocket, data: SocketData): RelaySocket {
+    const ctx = this.ctx;
+    const entry = { closed: false, saved: '', relay: undefined as unknown as RelaySocket };
+    entry.relay = {
       data,
       send(message) {
-        if (!closed)
+        if (!entry.closed)
           try {
-            server.send(message);
+            ws.send(message);
           } catch {
             // The peer is gone; the close event finishes cleanup.
           }
       },
-      close(code, reason) {
+      close: (code, reason) => {
         try {
-          server.close(code, reason);
+          ws.close(code, reason);
         } catch {
           // Already closing.
         }
-        finish();
+        this.finish(ws);
       },
+      heardFrom: () => ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0,
     };
-    // Like Bun, the core sees a close after the current handler returns, so a replacement
-    // connector is registered before its predecessor's close is processed.
-    const finish = () => {
-      if (closed) return;
-      closed = true;
-      setTimeout(() => this.core.close(relay), 0);
-    };
-    server.addEventListener('message', (event) => {
-      if (closed) return;
-      const size =
-        typeof event.data === 'string' ? event.data.length : (event.data as ArrayBuffer).byteLength;
-      if (size > MAX_FRAME_BYTES) return relay.close(1009, 'Frame too large');
-      this.core.message(relay, event.data as string | ArrayBuffer);
-    });
-    server.addEventListener('close', (event) => relay.close(event.code === 1005 ? 1000 : event.code, event.reason));
-    server.addEventListener('error', () => finish());
-    this.core.open(relay);
-    return new Response(null, { status: 101, webSocket: client });
+    this.sockets.set(ws, entry);
+    return entry.relay;
+  }
+
+  // Like Bun, the core sees a close after the current handler returns, so a replacement
+  // connector is registered before its predecessor's close is processed.
+  private finish(ws: WebSocket) {
+    const entry = this.sockets.get(ws);
+    if (!entry || entry.closed) return;
+    entry.closed = true;
+    setTimeout(() => {
+      this.sockets.delete(ws);
+      this.core.close(entry.relay);
+      this.settle();
+    }, 0);
+  }
+
+  /**
+   * After every event: saves changed socket state for the next wake, and keeps the sweep (whose
+   * timer keeps the object awake) running only while an open console or a command needs it.
+   */
+  private settle() {
+    for (const [ws, entry] of this.sockets) {
+      if (entry.closed) continue;
+      const saved = JSON.stringify(entry.relay.data);
+      if (saved === entry.saved) continue;
+      entry.saved = saved;
+      try {
+        ws.serializeAttachment(entry.relay.data);
+      } catch {
+        // Closing; nothing to restore.
+      }
+    }
+    const needed = this.core.needsSweep();
+    if (needed && !this.sweeper)
+      this.sweeper = setInterval(() => {
+        this.core.sweep();
+        this.settle();
+      }, this.core.sweepIntervalMs);
+    else if (!needed && this.sweeper) {
+      clearInterval(this.sweeper);
+      this.sweeper = undefined;
+    }
   }
 }
 

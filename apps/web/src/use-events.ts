@@ -15,6 +15,11 @@ export type LiveStream = {
 /** A silent socket for this long is treated as half-open and replaced. */
 const STALE_MS = 65_000;
 const PING_MS = 15_000;
+/**
+ * A tab hidden this long lets go of its event stream (an open stream keeps the relay awake and
+ * billed) and reconnects the moment it is shown again.
+ */
+const HIDDEN_PAUSE_MS = 3 * 60_000;
 export interface StreamHealth {
   /** Consecutive failed attempts since the last live stream. */
   attempt: number;
@@ -38,9 +43,9 @@ export function setInstanceLease(client: QueryClient, instanceId: string, lease:
 }
 export function useEvents(enabled: boolean) {
   const client = useQueryClient();
-  const [state, setState] = useState<'connecting' | 'live' | 'reconnecting' | 'offline'>(
-    'connecting',
-  );
+  const [state, setState] = useState<
+    'connecting' | 'live' | 'reconnecting' | 'offline' | 'paused'
+  >('connecting');
   const [health, setHealth] = useState<StreamHealth>({ attempt: 0 });
   const retryNow = useRef<() => void>(() => {});
   const [events, setEvents] = useState<RemoteEvent[]>([]);
@@ -61,6 +66,8 @@ export function useEvents(enabled: boolean) {
       refresh: ReturnType<typeof setTimeout> | undefined,
       pendingRemote = false,
       closed = false,
+      paused = false,
+      pauseTimer: ReturnType<typeof setTimeout> | undefined,
       attempts = 0,
       lastFrameAt = 0,
       pingId = 0;
@@ -127,6 +134,11 @@ export function useEvents(enabled: boolean) {
           void client.invalidateQueries({ queryKey: ['remote'] });
           return;
         }
+        // Streamed reply chunks are pushed, never stored: no sequence number.
+        if (frame.type === 'stream' && typeof frame.instanceId === 'string') {
+          applyStream(frame.instanceId, asRecord(frame.payload));
+          return;
+        }
         if (frame.type !== 'event' || typeof frame.seq !== 'number') return;
         const event = frame as unknown as RemoteEvent;
         if (event.seq <= last.current) return;
@@ -147,8 +159,15 @@ export function useEvents(enabled: boolean) {
             old.filter((a) => a.instanceId !== event.instanceId || a.bootId === envelope.bootId),
           );
         if (event.kind === 'instance.offline') setStreams({});
-        if (event.kind === 'assistant.stream' && typeof envelope.sessionId === 'string') {
-          const key = `${event.instanceId}:${envelope.sessionId}`,
+        if (event.kind === 'assistant.stream') return applyStream(event.instanceId, envelope);
+        refreshAfter(event.kind);
+      };
+      /** A chunk of a reply being streamed; its end refreshes the conversation. */
+      const applyStream = (instanceId: string, envelope: Record<string, unknown>) => {
+        const payload = asRecord(envelope.data);
+        if (payload.type === 'end') refreshAfter('assistant.stream');
+        if (typeof envelope.sessionId === 'string') {
+          const key = `${instanceId}:${envelope.sessionId}`,
             attemptId = String(payload.attemptId);
           setStreams((old) => {
             if (payload.type === 'end') {
@@ -182,26 +201,21 @@ export function useEvents(enabled: boolean) {
             };
           });
         }
-        // What an event invalidates. Command completions never do: a read would refresh itself
-        // forever. Lease and status changes are relay state (the instance list); only events
-        // from the host's sessions refresh host data, which costs a relayed command per query.
-        // Lease renewals arrive every few seconds, so they must not re-read the host.
-        if (
-          !event.kind.startsWith('command.') &&
-          (event.kind !== 'assistant.stream' || payload.type === 'end')
-        ) {
-          const relayOnly =
-            event.kind.startsWith('lease.') ||
-            event.kind === 'instance.status' ||
-            event.kind === 'instance.paired';
-          pendingRemote ||= !relayOnly;
-          refresh ??= setTimeout(() => {
-            refresh = undefined;
-            void client.invalidateQueries({ queryKey: ['instances'] });
-            if (pendingRemote) void client.invalidateQueries({ queryKey: ['remote'] });
-            pendingRemote = false;
-          }, 700);
-        }
+      };
+      // What an event invalidates. Command completions never do: a read would refresh itself
+      // forever. Lease and status changes are relay state (the instance list); only events
+      // from the host's sessions refresh host data, which costs a relayed command per query.
+      const refreshAfter = (kind: string) => {
+        if (kind.startsWith('command.')) return;
+        const relayOnly =
+          kind.startsWith('lease.') || kind === 'instance.status' || kind === 'instance.paired';
+        pendingRemote ||= !relayOnly;
+        refresh ??= setTimeout(() => {
+          refresh = undefined;
+          void client.invalidateQueries({ queryKey: ['instances'] });
+          if (pendingRemote) void client.invalidateQueries({ queryKey: ['remote'] });
+          pendingRemote = false;
+        }, 700);
       };
       current.onerror = () => current.close();
       current.onclose = () => {
@@ -223,6 +237,7 @@ export function useEvents(enabled: boolean) {
     /** Skips the backoff wait: used for network recovery, tab focus and the manual retry. */
     const resume = () => {
       if (closed || socket?.readyState === WebSocket.OPEN) return;
+      paused = false;
       attempts = Math.min(attempts, 1);
       const previous = socket;
       socket = undefined;
@@ -236,19 +251,38 @@ export function useEvents(enabled: boolean) {
       if (Date.now() - lastFrameAt > STALE_MS) socket.close();
       else ping();
     }, PING_MS);
+    const pause = () => {
+      if (closed || document.visibilityState === 'visible') return;
+      paused = true;
+      clearTimeout(reconnect);
+      const previous = socket;
+      socket = undefined;
+      previous?.close();
+      setStreams({});
+      setState('paused');
+      setHealth({ attempt: 0 });
+    };
     const onVisible = () => {
+      clearTimeout(pauseTimer);
       if (document.visibilityState === 'visible') resume();
+      else pauseTimer = setTimeout(pause, HIDDEN_PAUSE_MS);
+    };
+    // A paused stream waits for the tab to be shown, not for the network.
+    const onOnline = () => {
+      if (!paused) resume();
     };
     connect();
-    window.addEventListener('online', resume);
+    if (document.visibilityState !== 'visible') pauseTimer = setTimeout(pause, HIDDEN_PAUSE_MS);
+    window.addEventListener('online', onOnline);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       closed = true;
       clearTimeout(reconnect);
       clearTimeout(refresh);
+      clearTimeout(pauseTimer);
       clearInterval(watchdog);
       socket?.close();
-      window.removeEventListener('online', resume);
+      window.removeEventListener('online', onOnline);
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [enabled, client]);

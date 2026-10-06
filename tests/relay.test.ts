@@ -371,6 +371,50 @@ describe('Relay protocol and isolation (fixture connector; NOT DSH end-to-end)',
     expect(stored()).toBe(before);
     viewer.close();
   });
+  test("streamed reply chunks are pushed to the owner's consoles, never stored", async () => {
+    const open = (who: Identity) => {
+      const frames: any[] = [];
+      const socket = new WebSocket(base.replace('http', 'ws') + '/ws/events?after=0', {
+        headers: { Authorization: `Bearer ${who.token}` },
+      });
+      socket.onmessage = (e) => frames.push(JSON.parse(String(e.data)));
+      return { socket, frames };
+    };
+    const mine = open(a),
+      theirs = open(b);
+    await until(
+      () => mine.socket.readyState === WebSocket.OPEN && theirs.socket.readyState === WebSocket.OPEN,
+    );
+    await Bun.sleep(30);
+    const id = crypto.randomUUID();
+    connector.send(
+      JSON.stringify({
+        v: 1,
+        type: 'event',
+        id,
+        sessionId: 'streaming',
+        kind: 'assistant.stream',
+        payload: { type: 'chunk', attemptId: 'x', index: 0, chunk: { type: 'text-delta', text: 'hi' } },
+      }),
+    );
+    await until(() => mine.frames.some((f) => f.type === 'stream'));
+    expect(mine.frames.find((f) => f.type === 'stream')).toEqual({
+      v: 1,
+      type: 'stream',
+      instanceId: instance.id,
+      payload: {
+        sessionId: 'streaming',
+        data: { type: 'chunk', attemptId: 'x', index: 0, chunk: { type: 'text-delta', text: 'hi' } },
+      },
+    });
+    await Bun.sleep(30);
+    expect(theirs.frames.some((f) => f.type === 'stream')).toBe(false);
+    expect(
+      relay.db.query("SELECT COUNT(*) AS n FROM events WHERE kind='assistant.stream'").get(),
+    ).toEqual({ n: 0 });
+    mine.socket.close();
+    theirs.socket.close();
+  });
   test('housekeeping never reads the commands table', async () => {
     const query = relay.db.query.bind(relay.db),
       seen: string[] = [];

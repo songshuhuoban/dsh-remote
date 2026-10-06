@@ -595,6 +595,26 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// A chunk of a reply being streamed, from a pushed frame or (older relays)
+  /// a stored event: `{sessionId, data}`.
+  void _applyStream(String instanceId, JsonMap envelope) {
+    final session = envelope['sessionId'];
+    if (session is! String) return;
+    final payload = object(envelope['data']);
+    final key = '$instanceId:$session';
+    final attempt = payload['attemptId']?.toString() ?? '';
+    if (payload['type'] == 'end') {
+      streams.remove(key);
+    } else if (payload['type'] == 'start') {
+      streams[key] = StreamText(attempt);
+    } else if (payload['type'] == 'chunk') {
+      if (streams[key]?.attemptId != attempt) {
+        streams[key] = StreamText(attempt, incomplete: true);
+      }
+      streams[key]!.add(payload);
+    }
+  }
+
   /// Puts a lease the relay reported into the instance list.
   void _setLease(String instanceId, Lease? lease) {
     _setInstances([
@@ -1128,26 +1148,23 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
               );
               return;
             }
+            // Streamed reply chunks are pushed, never stored (no sequence).
+            if (json['type'] == 'stream' && json['instanceId'] is String) {
+              _applyStream(
+                json['instanceId'] as String,
+                object(json['payload']),
+              );
+              _notify();
+              return;
+            }
             if (json['type'] != 'event') return;
             final event = RelayEvent.fromJson(json);
             if (event.seq <= _after) return;
             _after = event.seq;
             events.add(event);
             final payload = object(object(event.payload)['data']);
-            final session = object(event.payload)['sessionId'];
-            if (event.kind == 'assistant.stream' && session is String) {
-              final key = '${event.instanceId}:$session';
-              final attempt = payload['attemptId']?.toString() ?? '';
-              if (payload['type'] == 'end') {
-                streams.remove(key);
-              } else if (payload['type'] == 'start') {
-                streams[key] = StreamText(attempt);
-              } else if (payload['type'] == 'chunk') {
-                if (streams[key]?.attemptId != attempt) {
-                  streams[key] = StreamText(attempt, incomplete: true);
-                }
-                streams[key]!.add(payload);
-              }
+            if (event.kind == 'assistant.stream') {
+              _applyStream(event.instanceId, object(event.payload));
             }
             if (event.kind == 'instance.offline') {
               streams.removeWhere(

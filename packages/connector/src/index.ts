@@ -258,8 +258,10 @@ input.on('line', (line) => {
       journal = new Journal(config.journalPath);
       connect();
     } else if (frame.type === 'heartbeat.ack') {
+      // A constant heartbeat: a Cloudflare relay answers it without waking up, so an idle
+      // relay costs nothing while this Host stays connected.
       if (welcomed && frame.connectionEpoch === connectionEpoch && frame.nonce === heartbeatNonce)
-        send({ v: 1, type: 'ping', connectionEpoch });
+        send({ v: 1, type: 'ping' });
     } else if (frame.type === 'lease.ack') {
       if (
         welcomed &&

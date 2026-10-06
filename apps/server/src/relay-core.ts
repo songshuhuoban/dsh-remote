@@ -49,6 +49,11 @@ export interface RelaySocket {
   data: SocketData;
   send(message: string): unknown;
   close(code?: number, reason?: string): void;
+  /**
+   * When the runtime last answered this socket's heartbeat by itself (a Durable Object's
+   * WebSocket auto-response, which never reaches the core); 0 if never.
+   */
+  heardFrom?(): number;
 }
 type Socket = RelaySocket;
 /** Runtime services the core cannot provide portably. */
@@ -56,6 +61,11 @@ export interface RelayPlatform {
   passwords: PasswordHasher;
   /** Serves the web console for unmatched GET requests, if this runtime does so. */
   staticFile?: (path: string) => Response | null;
+  /**
+   * The runtime hibernates: it restores sockets with `restore` and then calls `recover`, runs
+   * `sweep` only while `needsSweep`, and calls `prune` on its own daily schedule.
+   */
+  hibernates?: boolean;
 }
 /** Per-request runtime hooks. `upgrade` returns false when the request cannot be upgraded. */
 export interface RequestIO {
@@ -233,25 +243,52 @@ export function createRelayCore(
   /** `Prefer: wait=N` (RFC 7240) holds the response until the result, so clients need not poll. */
   const preferredWaitMs = (req: Request) =>
     Math.min(25, Number(/\bwait=(\d+)/.exec(req.headers.get('prefer') ?? '')?.[1] ?? 0)) * 1000;
+  /** A Host's last heartbeat, whether the core or the runtime answered it. */
+  function seenAt(ws: Socket) {
+    return ws.data.role === 'connector' ? Math.max(ws.data.lastSeenAt, ws.heardFrom?.() ?? 0) : 0;
+  }
   function connectionStatus(id: string): 'connecting' | 'online' | 'stale' | 'offline' {
-    const data = connectors.get(id)?.data;
-    if (data?.role !== 'connector') return 'offline';
-    if (Date.now() - data.lastSeenAt > heartbeatStaleMs) return 'stale';
+    const ws = connectors.get(id),
+      data = ws?.data;
+    if (!ws || data?.role !== 'connector') return 'offline';
+    if (Date.now() - seenAt(ws) > heartbeatStaleMs) return 'stale';
     return data.ready ? 'online' : 'connecting';
   }
   function connectorOnline(id: string): boolean {
     return connectionStatus(id) === 'online';
   }
-  // A lost connection after dispatch has an unknown outcome, never safe automatic replay.
-  run(
-    "UPDATE commands SET status='indeterminate',error=?,updated_at=? WHERE status IN ('queued','dispatched')",
-    JSON.stringify({
-      code: 'RELAY_RESTARTED',
-      message:
-        'Relay restarted before a durable result; inspect DSH state before retrying with a new id',
-    }),
-    Date.now(),
-  );
+  /**
+   * After a start, or a wake from hibernation once sockets are restored: stored commands still
+   * awaiting a result are tracked again while their Host's connection survived. Otherwise the
+   * outcome is unknown, never safe to replay automatically.
+   */
+  function recover() {
+    for (const instance of all('SELECT id FROM instances')) {
+      const id = String(instance.id);
+      if (connectors.has(id))
+        for (const row of all(
+          "SELECT id,user_id,created_at FROM commands WHERE instance_id=? AND status='dispatched'",
+          id,
+        ))
+          inflight.set(String(row.id), {
+            userId: String(row.user_id),
+            instanceId: id,
+            createdAt: Number(row.created_at),
+          });
+      else
+        run(
+          "UPDATE commands SET status='indeterminate',error=?,updated_at=? WHERE instance_id=? AND status IN ('queued','dispatched')",
+          JSON.stringify({
+            code: 'RELAY_RESTARTED',
+            message:
+              'Relay restarted before a durable result; inspect DSH state before retrying with a new id',
+          }),
+          Date.now(),
+          id,
+        );
+    }
+  }
+  if (!platform.hibernates) recover();
   function emit(
     userId: string,
     instanceId: string,
@@ -339,14 +376,15 @@ export function createRelayCore(
     );
   }
   function instanceView(row: Row) {
-    const live = connectors.get(String(row.id))?.data;
+    const socket = connectors.get(String(row.id)),
+      live = socket ? seenAt(socket) || null : null;
     return {
       id: String(row.id),
       name: String(row.name),
       createdAt: Number(row.created_at),
       online: connectorOnline(String(row.id)),
       status: connectionStatus(String(row.id)),
-      lastSeenAt: (live?.role === 'connector' ? live.lastSeenAt : null) ?? row.last_seen_at ?? null,
+      lastSeenAt: live ?? row.last_seen_at ?? null,
       connectedAt: row.connected_at ?? null,
       disconnectedAt: row.disconnected_at ?? null,
       observedAt: Date.now(),
@@ -1344,6 +1382,24 @@ export function createRelayCore(
             if (!('payload' in frame)) throw new Error('Missing payload');
             if (!(CONNECTOR_EVENT_KINDS as readonly string[]).includes(kind))
               throw new Error('Reserved or unknown event kind');
+            // Streamed reply chunks come by the hundred per answer and the final text arrives as
+            // session events anyway: open viewers get them pushed, nothing is stored.
+            if (kind === 'assistant.stream') {
+              const pushed = JSON.stringify({
+                v: 1,
+                type: 'stream',
+                instanceId: ws.data.instanceId,
+                payload: {
+                  sessionId: typeof frame.sessionId === 'string' ? frame.sessionId : null,
+                  data: frame.payload as Json,
+                },
+              });
+              for (const viewer of viewers)
+                if (viewer.data.role === 'viewer' && viewer.data.userId === ws.data.userId)
+                  viewer.send(pushed);
+              ws.send(JSON.stringify({ v: 1, type: 'event.ack', id }));
+              return;
+            }
             let projection: (() => void) | undefined;
             const eventInstanceId = ws.data.instanceId;
             if (kind === 'approval.requested') {
@@ -1417,7 +1473,10 @@ export function createRelayCore(
             return;
           }
           if (frame.type === 'ping') {
-            if (frame.connectionEpoch !== ws.data.epoch) throw new Error('Stale heartbeat');
+            // Current connectors send a constant heartbeat (a runtime may answer it by itself);
+            // older ones name their connection, which must still be this one.
+            if (frame.connectionEpoch !== undefined && frame.connectionEpoch !== ws.data.epoch)
+              throw new Error('Stale heartbeat');
             ws.data.lastSeenAt = Date.now();
             if (ws.data.lastSeenAt - ws.data.persistedSeenAt >= SEEN_PERSIST_MS) {
               ws.data.persistedSeenAt = ws.data.lastSeenAt;
@@ -1450,7 +1509,7 @@ export function createRelayCore(
         run(
           'UPDATE instances SET disconnected_at=?,last_seen_at=? WHERE id=?',
           Date.now(),
-          ws.data.lastSeenAt,
+          seenAt(ws),
           ws.data.instanceId,
         );
         finishPending(
@@ -1471,10 +1530,10 @@ export function createRelayCore(
       if (ws.data.lastStatus !== status) {
         ws.data.lastStatus = status;
         emit(ws.data.userId, ws.data.instanceId, 'instance.status', {
-          status, lastSeenAt: ws.data.lastSeenAt, connectionEpoch: ws.data.epoch,
+          status, lastSeenAt: seenAt(ws), connectionEpoch: ws.data.epoch,
         });
       }
-      if (now - ws.data.lastSeenAt > heartbeatDisconnectMs)
+      if (now - seenAt(ws) > heartbeatDisconnectMs)
         ws.close(4002, 'DSH Host heartbeat expired');
     }
     for (const ws of viewers)
@@ -1494,23 +1553,41 @@ export function createRelayCore(
     for (const [id, read] of reads)
       if (!inflight.has(id) && Number(read.updated_at) < now - READ_RETENTION_MS) reads.delete(id);
     for (const [ip, limit] of attempts) if (limit.until < now) attempts.delete(ip);
-    // Daily, unindexed: an extra index would cost a storage write on every event.
-    if (now >= nextPruneAt) {
+    if (!platform.hibernates && now >= nextPruneAt) {
       nextPruneAt = now + 24 * 60 * 60 * 1000;
-      run('DELETE FROM events WHERE created_at<?', now - eventRetentionMs);
-      run(
-        "DELETE FROM commands WHERE updated_at<? AND status NOT IN ('queued','dispatched')",
-        now - eventRetentionMs,
-      );
-      run('DELETE FROM pairing_codes WHERE expires_at<?', now);
+      prune();
     }
   }
+  /** Daily, unindexed: an extra index would cost a storage write on every event. */
+  function prune() {
+    const now = Date.now();
+    run('DELETE FROM events WHERE created_at<?', now - eventRetentionMs);
+    run(
+      "DELETE FROM commands WHERE updated_at<? AND status NOT IN ('queued','dispatched')",
+      now - eventRetentionMs,
+    );
+    run('DELETE FROM pairing_codes WHERE expires_at<?', now);
+  }
+  /** Re-registers a socket that outlived a hibernation; nothing is sent or announced. */
+  function restore(ws: Socket) {
+    if (ws.data.role === 'viewer') viewers.add(ws);
+    else connectors.set(ws.data.instanceId, ws);
+  }
+  /**
+   * Whether deadlines need the sweep: open consoles (status changes, keepalives) or commands
+   * awaiting results. A hibernating runtime sleeps otherwise.
+   */
+  const needsSweep = () => viewers.size > 0 || inflight.size > 0;
   return {
     fetch,
     open,
     message,
     close,
     sweep,
+    prune,
+    restore,
+    recover,
+    needsSweep,
     sweepIntervalMs: Math.min(1000, heartbeatStaleMs),
     /** Closes every socket; the runtime then stops its listener and storage. */
     closeAll() {
