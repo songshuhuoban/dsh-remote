@@ -19,7 +19,12 @@
     // "disabled" | "enabled" | "invite" (needs the REGISTRATION_INVITE_CODE secret)
     "REGISTRATION": "invite",
     "ALLOWED_ORIGINS": "",
-    "EVENT_RETENTION_DAYS": "7"
+    "EVENT_RETENTION_DAYS": "7",
+    // GitHub App "DSH Remote" (sign-in and read-only repositories); docs/deploy-cloudflare.md.
+    // GITHUB_APP_CLIENT_SECRET and GITHUB_TOKEN_ENCRYPTION_KEY are Worker secrets.
+    "GITHUB_APP_CLIENT_ID": "Iv23liTiFdNGXZP4IQYM",
+    "GITHUB_APP_SLUG": "dsh-remote",
+    "GITHUB_CALLBACK_URL": "https://dsh.sqmem.top/github/callback"
   },
   "routes": [{ "pattern": "dsh.sqmem.top", "custom_domain": true }],
   "observability": { "enabled": true }
