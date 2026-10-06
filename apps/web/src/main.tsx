@@ -83,7 +83,7 @@ import {
   toolCallForApproval,
   type SessionSummary,
 } from './session';
-import { useEvents, type PendingApproval, type LiveStream } from './use-events';
+import { setInstanceLease, useEvents, type PendingApproval, type LiveStream } from './use-events';
 import { Actions, Empty, Err, Field, Modal, NativeSelect, Spinner } from './ui';
 import { ModelSettings } from './model-settings';
 import { RepositoryPanel } from './repository-panel';
@@ -497,16 +497,19 @@ function Console({ identity }: { identity: Identity }) {
       if (!document.querySelector('dialog[open]')) trigger?.focus();
     };
   }, [mobileMenu]);
+  // While the event stream is live it says what changed; polling is only its fallback, since
+  // every poll is a billed relay request (and host reads cost a relayed command each).
+  const eventStream = useEvents(true);
+  const polling = eventStream.state !== 'live';
   const instances = useQuery({
     queryKey: ['instances'],
     queryFn: () => api<{ instances: Instance[] }>('/api/instances'),
-    refetchInterval: 10000,
+    refetchInterval: polling ? 10000 : false,
   });
   const controllers = useQuery({
     queryKey: ['controllers'],
     queryFn: () => api<{ controllers: Controller[] }>('/api/controllers'),
   });
-  const eventStream = useEvents(true);
   const instance =
     instances.data?.instances.find((i) => i.id === search.instance) ??
     (!search.instance ? instances.data?.instances[0] : undefined);
@@ -536,7 +539,7 @@ function Console({ identity }: { identity: Identity }) {
         sessionsFrom,
       ),
     enabled: !!id && online,
-    refetchInterval: 15000,
+    refetchInterval: polling ? 15000 : false,
   });
   const selectedInstance = useRef(id),
     leaseRequestTarget = useRef(id);
@@ -638,7 +641,11 @@ function Console({ identity }: { identity: Identity }) {
     }
     const expires = lease?.expiresAt ? new Date(lease.expiresAt).getTime() - Date.now() : 0;
     if (expires <= 0) return;
-    const timer = setTimeout(() => setClock(Date.now()), expires + 50);
+    // Renewals are pushed; an expiry still shown means none came, so check with the relay.
+    const timer = setTimeout(() => {
+      setClock(Date.now());
+      void client.invalidateQueries({ queryKey: ['instances'] });
+    }, expires + 50);
     return () => clearTimeout(timer);
   }, [eventStream.state, eventStream.health.nextRetryAt, lease?.expiresAt]);
   useEffect(() => {
@@ -648,7 +655,7 @@ function Console({ identity }: { identity: Identity }) {
       if (document.visibilityState !== 'visible' || running) return;
       running = true;
       post<Lease>(`/api/instances/${id}/lease`, { controllerId: identity.controller.id })
-        .then(() => client.invalidateQueries({ queryKey: ['instances'] }))
+        .then((next) => setInstanceLease(client, id, next))
         .catch((error) => {
           setNotice(`控制权续期失败：${errorText(error)}`);
           void client.invalidateQueries({ queryKey: ['instances'] });
@@ -1023,6 +1030,7 @@ function Console({ identity }: { identity: Identity }) {
                   controller={identity.controller}
                   lease={holding ? lease! : null}
                   online={online}
+                  live={streamLive}
                   events={events}
                   approvals={eventStream.approvals.filter(
                     (a) => a.instanceId === id && a.sessionId === sessionId,
@@ -1643,6 +1651,7 @@ function Session({
   controller,
   lease,
   online,
+  live,
   events,
   approvals,
   stream,
@@ -1654,6 +1663,8 @@ function Session({
   controller: Controller;
   lease: Lease | null;
   online: boolean;
+  /** The event stream is live, so host changes arrive as events instead of by polling. */
+  live: boolean;
   events: RemoteEvent[];
   approvals: PendingApproval[];
   stream?: LiveStream;
@@ -1686,7 +1697,7 @@ function Session({
   const references = useQuery({
     queryKey: ['repositories', id],
     queryFn: ({ signal }) => getReferences(id, signal),
-    refetchInterval: 10000,
+    refetchInterval: live ? 60000 : 10000,
   });
   const scrollRef = useRef<HTMLDivElement>(null),
     fileInput = useRef<HTMLInputElement>(null),
@@ -1697,7 +1708,7 @@ function Session({
     queryFn: ({ signal }) =>
       runCommand(id, controller.id, 'session.read', { sessionId }, undefined, signal),
     enabled: online,
-    refetchInterval: summary?.running ? 5000 : 20000,
+    refetchInterval: live ? false : summary?.running ? 5000 : 20000,
   });
   const data = asRecord(history.data),
     projection = asRecord(asRecord(data.projections).values),

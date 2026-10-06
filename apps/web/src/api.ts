@@ -160,6 +160,8 @@ export async function runCommand(
   let command = unwrapCommand(
     await api<Command>(`/api/instances/${encodeURIComponent(instanceId)}/commands`, {
       method: 'POST',
+      // The relay answers with the result once it arrives (or after 20 s): no polling.
+      headers: { Prefer: 'wait=20' },
       body: JSON.stringify({
         id,
         controllerId,

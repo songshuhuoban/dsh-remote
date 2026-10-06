@@ -170,6 +170,69 @@ export function createRelayCore(
   const all = (sql: string, ...args: (string | number | null)[]) =>
     db.query(sql).all(...args) as Row[];
   const run = (sql: string, ...args: (string | number | null)[]) => db.query(sql).run(...args);
+  // Durable Objects bill every row a query reads or writes, so the hot paths below stay out of
+  // storage: nothing on a timer or per request may scan `commands`, which grows with use.
+  /** Dispatched commands awaiting their result; a restart turns every stored one indeterminate. */
+  const inflight = new Map<string, { userId: string; instanceId: string; createdAt: number }>();
+  /**
+   * Reads are safe to repeat, so they never touch storage: each stored command costs a dozen
+   * row writes (row, indexes, status updates, events). Results stay here a while for lookups.
+   */
+  const reads = new Map<string, Row>();
+  const READ_RETENTION_MS = 10 * 60_000;
+  const settledWaiters = new Map<string, Set<() => void>>();
+  const isStoredAction = (action: Action) => isWriteAction(action) || action === 'repository.inspect';
+  const commandRow = (id: string) => reads.get(id) ?? get('SELECT * FROM commands WHERE id=?', id);
+  const commandPending = (row: Row) => row.status === 'queued' || row.status === 'dispatched';
+  /** Records a command's new state: in memory for reads, in storage otherwise. */
+  function writeCommand(id: string, status: string, result: Json | null, error: Json | null) {
+    const read = reads.get(id),
+      now = Date.now(),
+      encodedResult = result === null ? null : JSON.stringify(result),
+      encodedError = error === null ? null : JSON.stringify(error);
+    if (read) Object.assign(read, { status, result: encodedResult, error: encodedError, updated_at: now });
+    else
+      run(
+        'UPDATE commands SET status=?,result=?,error=?,updated_at=? WHERE id=?',
+        status,
+        encodedResult,
+        encodedError,
+        now,
+        id,
+      );
+  }
+  /** Wakes requests waiting on a settled command and announces stored ones. */
+  function announceCommand(id: string) {
+    const row = commandRow(id)!;
+    if (!commandPending(row)) {
+      inflight.delete(id);
+      for (const wake of settledWaiters.get(id) ?? []) wake();
+      settledWaiters.delete(id);
+    }
+    if (!reads.has(id))
+      emit(String(row.user_id), String(row.instance_id), 'command.updated', commandView(row) as unknown as Json);
+  }
+  function updateCommand(id: string, status: string, result: Json | null, error: Json | null) {
+    writeCommand(id, status, result, error);
+    announceCommand(id);
+  }
+  /** Waits until the command leaves `dispatched`, or `ms` passes. */
+  function settled(id: string, ms: number) {
+    const row = commandRow(id);
+    if (ms <= 0 || !row || !commandPending(row)) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const wake = () => {
+        clearTimeout(timer);
+        settledWaiters.get(id)?.delete(wake);
+        resolve();
+      };
+      const timer = setTimeout(wake, ms);
+      settledWaiters.set(id, (settledWaiters.get(id) ?? new Set()).add(wake));
+    });
+  }
+  /** `Prefer: wait=N` (RFC 7240) holds the response until the result, so clients need not poll. */
+  const preferredWaitMs = (req: Request) =>
+    Math.min(25, Number(/\bwait=(\d+)/.exec(req.headers.get('prefer') ?? '')?.[1] ?? 0)) * 1000;
   function connectionStatus(id: string): 'connecting' | 'online' | 'stale' | 'offline' {
     const data = connectors.get(id)?.data;
     if (data?.role !== 'connector') return 'offline';
@@ -463,7 +526,16 @@ export function createRelayCore(
     if (lease) publishLease(lease);
     return raw;
   }
-  function publishLease(row: Row) {
+  /**
+   * Renewals only move a lease's expiry, every few seconds per controlling device: open viewers
+   * get them pushed, never stored (reconnecting viewers re-read the instance list anyway).
+   */
+  function pushLease(userId: string, instanceId: string, lease: Json) {
+    const frame = JSON.stringify({ v: 1, type: 'lease', instanceId, lease });
+    for (const ws of viewers) if (ws.data.role === 'viewer' && ws.data.userId === userId) ws.send(frame);
+  }
+  /** Sends the connector its lease; a change of holder or epoch is also a stored event. */
+  function publishLease(row: Row, renewal = false) {
     const instance = ownedInstance(
       String(row.instance_id),
       String(get('SELECT user_id FROM instances WHERE id=?', String(row.instance_id))!.user_id),
@@ -476,6 +548,8 @@ export function createRelayCore(
     connectors
       .get(String(row.instance_id))
       ?.send(JSON.stringify({ v: 1, type: 'lease', ...lease }));
+    // A renewal is visible once the Host acknowledges it.
+    if (renewal) return;
     emit(
       String(instance.user_id),
       String(instance.id),
@@ -484,23 +558,8 @@ export function createRelayCore(
     );
   }
   function finishPending(instanceId: string, code: string, message: string) {
-    for (const row of all(
-      "SELECT * FROM commands WHERE instance_id=? AND status='dispatched'",
-      instanceId,
-    )) {
-      run(
-        "UPDATE commands SET status='indeterminate',error=?,updated_at=? WHERE id=?",
-        JSON.stringify({ code, message }),
-        Date.now(),
-        String(row.id),
-      );
-      emit(
-        String(row.user_id),
-        instanceId,
-        'command.updated',
-        commandView(get('SELECT * FROM commands WHERE id=?', String(row.id))!) as unknown as Json,
-      );
-    }
+    for (const [id, command] of inflight)
+      if (command.instanceId === instanceId) updateCommand(id, 'indeterminate', null, { code, message });
   }
   function revokeController(controllerId: string) {
     run('DELETE FROM auth_sessions WHERE controller_id=?', controllerId);
@@ -543,7 +602,7 @@ export function createRelayCore(
             headers: {
               'Access-Control-Allow-Origin': req.headers.get('origin') ?? url.origin,
               'Access-Control-Allow-Credentials': 'true',
-              'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+              'Access-Control-Allow-Headers': 'Content-Type,Authorization,Prefer',
               'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
             },
           });
@@ -814,13 +873,17 @@ export function createRelayCore(
           }
           const commandMatch = path.match(/^\/api\/commands\/([^/]+)$/);
           if (commandMatch && req.method === 'GET') {
-            const row = get(
-              'SELECT * FROM commands WHERE (id=? OR (id=? AND request_id IS NULL)) AND user_id=?',
-              digest(`${auth.userId}:${commandMatch[1]!}`),
-              commandMatch[1]!,
-              auth.userId,
-            );
-            if (!row) throw new HttpError(404, 'NOT_FOUND', 'Command not found');
+            const id = digest(`${auth.userId}:${commandMatch[1]!}`);
+            const row =
+              reads.get(id) ??
+              get(
+                'SELECT * FROM commands WHERE (id=? OR (id=? AND request_id IS NULL)) AND user_id=?',
+                id,
+                commandMatch[1]!,
+                auth.userId,
+              );
+            if (!row || row.user_id !== auth.userId)
+              throw new HttpError(404, 'NOT_FOUND', 'Command not found');
             return json(commandView(row));
           }
           const instanceMatch = path.match(/^\/api\/instances\/([^/]+)\/(lease|commands)$/);
@@ -838,7 +901,7 @@ export function createRelayCore(
                   'INSTANCE_OFFLINE',
                   'Connect the DSH instance before acquiring control',
                 );
-              const result = db.transaction(() => {
+              const [result, renewal] = db.transaction(() => {
                 const old = get('SELECT * FROM leases WHERE instance_id=?', id),
                   now = Date.now();
                 const held = old && Number(old.expires_at) > now;
@@ -848,9 +911,8 @@ export function createRelayCore(
                     'LEASE_HELD',
                     'Another controller currently holds control',
                   );
-                const epoch = old
-                  ? Number(old.epoch) + (held && old.controller_id === auth.controllerId ? 0 : 1)
-                  : 1;
+                const renewal = !!held && old.controller_id === auth.controllerId;
+                const epoch = old ? Number(old.epoch) + (renewal ? 0 : 1) : 1;
                 run(
                   'INSERT INTO leases(instance_id,controller_id,epoch,expires_at) VALUES(?,?,?,?) ON CONFLICT(instance_id) DO UPDATE SET controller_id=excluded.controller_id,epoch=excluded.epoch,expires_at=excluded.expires_at',
                   id,
@@ -858,9 +920,9 @@ export function createRelayCore(
                   epoch,
                   now + leaseMs,
                 );
-                return get('SELECT * FROM leases WHERE instance_id=?', id)!;
+                return [get('SELECT * FROM leases WHERE instance_id=?', id)!, renewal] as const;
               })();
-              publishLease(result);
+              publishLease(result, renewal);
               await waitFence(id, Number(result.epoch), Number(result.expires_at));
               return json(leaseView(id));
             }
@@ -928,7 +990,8 @@ export function createRelayCore(
                   ...(repositoryIds === undefined ? {} : { repositoryIds }),
                 }),
               );
-              const existing = get('SELECT * FROM commands WHERE id=?', commandId);
+              const waitMs = preferredWaitMs(req);
+              const existing = commandRow(commandId);
               if (existing) {
                 if (existing.user_id !== auth.userId)
                   throw new HttpError(404, 'NOT_FOUND', 'Command not found');
@@ -938,11 +1001,13 @@ export function createRelayCore(
                     'IDEMPOTENCY_CONFLICT',
                     'Command id already has different arguments',
                   );
-                return json(commandView(existing));
+                await settled(commandId, waitMs);
+                return json(commandView(commandRow(commandId)!));
               }
-              if (
-                Number(get("SELECT COUNT(*) AS count FROM commands WHERE user_id=? AND status='dispatched'", auth.userId)?.count ?? 0) >= 64
-              ) throw new HttpError(429, 'COMMAND_QUOTA', 'Too many commands awaiting acknowledgement');
+              let awaiting = 0;
+              for (const command of inflight.values()) if (command.userId === auth.userId) awaiting++;
+              if (awaiting >= 64)
+                throw new HttpError(429, 'COMMAND_QUOTA', 'Too many commands awaiting acknowledgement');
               let args = input.args;
               if (repositoryId !== null)
                 args = github.inspectArguments(auth.userId, id, repositoryId);
@@ -971,22 +1036,43 @@ export function createRelayCore(
                 leaseEpoch = lease.epoch;
               }
               const now = Date.now();
-              run(
-                'INSERT INTO commands(id,request_id,instance_id,user_id,controller_id,action,payload,fingerprint,lease_epoch,status,created_at,updated_at,repository_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                commandId,
-                requestId,
-                id,
-                auth.userId,
-                auth.controllerId,
+              const stored = isStoredAction(action);
+              const fields: Row = {
+                id: commandId,
+                request_id: requestId,
+                instance_id: id,
+                user_id: auth.userId,
+                controller_id: auth.controllerId,
                 action,
                 payload,
                 fingerprint,
-                leaseEpoch,
-                'dispatched',
-                now,
-                now,
-                repositoryId,
-              );
+                lease_epoch: leaseEpoch,
+                status: 'dispatched',
+                result: null,
+                error: null,
+                created_at: now,
+                updated_at: now,
+                repository_id: repositoryId,
+              };
+              if (stored)
+                run(
+                  'INSERT INTO commands(id,request_id,instance_id,user_id,controller_id,action,payload,fingerprint,lease_epoch,status,created_at,updated_at,repository_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                  commandId,
+                  requestId,
+                  id,
+                  auth.userId,
+                  auth.controllerId,
+                  action,
+                  payload,
+                  fingerprint,
+                  leaseEpoch,
+                  'dispatched',
+                  now,
+                  now,
+                  repositoryId,
+                );
+              else reads.set(commandId, fields);
+              inflight.set(commandId, { userId: auth.userId, instanceId: id, createdAt: now });
               connector.send(
                 JSON.stringify({
                   v: 1,
@@ -1003,9 +1089,11 @@ export function createRelayCore(
                   ),
                 }),
               );
-              const row = get('SELECT * FROM commands WHERE id=?', commandId)!;
-              emit(auth.userId, id, 'command.updated', commandView(row) as unknown as Json);
-              return json(commandView(row), 202);
+              if (stored)
+                emit(auth.userId, id, 'command.updated', commandView(commandRow(commandId)!) as unknown as Json);
+              await settled(commandId, waitMs);
+              const row = commandRow(commandId)!;
+              return json(commandView(row), commandPending(row) ? 202 : 200);
             }
           }
           throw new HttpError(404, 'NOT_FOUND', 'Route not found');
@@ -1188,29 +1276,26 @@ export function createRelayCore(
               (ws.data.leaseEpoch !== frame.epoch ||
                 Number(frame.expiresAt) >= ws.data.leaseExpiresAt)
             ) {
-              const changed =
-                ws.data.leaseEpoch !== frame.epoch || ws.data.leaseExpiresAt !== frame.expiresAt;
+              const renewal = ws.data.leaseEpoch === frame.epoch,
+                changed = !renewal || ws.data.leaseExpiresAt !== frame.expiresAt;
               ws.data.leaseEpoch = Number(frame.epoch);
               ws.data.leaseExpiresAt = Number(frame.expiresAt);
-              if (changed)
-                emit(ws.data.userId, ws.data.instanceId, 'lease.changed', {
-                  controllerId: String(current.controller_id),
-                  epoch: Number(frame.epoch),
-                  expiresAt: Number(frame.expiresAt),
-                  pending: false,
-                });
+              const lease = {
+                controllerId: String(current.controller_id),
+                epoch: Number(frame.epoch),
+                expiresAt: Number(frame.expiresAt),
+                pending: false,
+              };
+              if (changed && renewal) pushLease(ws.data.userId, ws.data.instanceId, lease);
+              else if (changed) emit(ws.data.userId, ws.data.instanceId, 'lease.changed', lease);
             }
             return;
           }
           if (frame.type === 'result') {
             if (frame.connectionEpoch !== ws.data.epoch) throw new Error('Stale connection epoch');
             const id = string(frame.id, 'id', 120),
-              row = get(
-                'SELECT * FROM commands WHERE id=? AND instance_id=?',
-                id,
-                ws.data.instanceId,
-              );
-            if (!row) return;
+              row = commandRow(id);
+            if (!row || row.instance_id !== ws.data.instanceId) return;
             if (row.status === 'succeeded' || row.status === 'failed') {
               ws.send(JSON.stringify({ v: 1, type: 'result.ack', id }));
               return;
@@ -1247,21 +1332,9 @@ export function createRelayCore(
                   if (!ok) github.markInspectionStale(String(row.user_id), String(row.instance_id), row.repository_id);
                 }
               }
-              run(
-                'UPDATE commands SET status=?,result=?,error=?,updated_at=? WHERE id=?',
-                ok ? 'succeeded' : 'failed',
-                ok ? JSON.stringify(result) : null,
-                error ? JSON.stringify(error) : null,
-                Date.now(),
-                id,
-              );
+              writeCommand(id, ok ? 'succeeded' : 'failed', ok ? (result as Json) : null, error);
             })();
-            emit(
-              ws.data.userId,
-              ws.data.instanceId,
-              'command.updated',
-              commandView(get('SELECT * FROM commands WHERE id=?', id)!) as unknown as Json,
-            );
+            announceCommand(id);
             ws.send(JSON.stringify({ v: 1, type: 'result.ack', id }));
             return;
           }
@@ -1411,32 +1484,24 @@ export function createRelayCore(
       nextKeepaliveAt = now + KEEPALIVE_MS;
       for (const ws of viewers) ws.send('{"v":1,"type":"keepalive"}');
     }
-    for (const row of all(
-      "SELECT * FROM commands WHERE status='dispatched' AND created_at<?",
-      now - commandMs,
-    )) {
-      run(
-        "UPDATE commands SET status='indeterminate',error=?,updated_at=? WHERE id=?",
-        JSON.stringify({
+    for (const [id, command] of inflight)
+      if (command.createdAt < now - commandMs)
+        updateCommand(id, 'indeterminate', null, {
           code: 'RESULT_TIMEOUT',
           message:
             'No final acknowledgement; inspect actual DSH state before submitting a different command id',
-        }),
-        now,
-        String(row.id),
-      );
-      emit(
-        String(row.user_id),
-        String(row.instance_id),
-        'command.updated',
-        commandView(get('SELECT * FROM commands WHERE id=?', String(row.id))!) as unknown as Json,
-      );
-    }
+        });
+    for (const [id, read] of reads)
+      if (!inflight.has(id) && Number(read.updated_at) < now - READ_RETENTION_MS) reads.delete(id);
     for (const [ip, limit] of attempts) if (limit.until < now) attempts.delete(ip);
     // Daily, unindexed: an extra index would cost a storage write on every event.
     if (now >= nextPruneAt) {
       nextPruneAt = now + 24 * 60 * 60 * 1000;
       run('DELETE FROM events WHERE created_at<?', now - eventRetentionMs);
+      run(
+        "DELETE FROM commands WHERE updated_at<? AND status NOT IN ('queued','dispatched')",
+        now - eventRetentionMs,
+      );
       run('DELETE FROM pairing_codes WHERE expires_at<?', now);
     }
   }

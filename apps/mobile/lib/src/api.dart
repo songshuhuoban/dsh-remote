@@ -68,6 +68,11 @@ class RelayApi {
       if (token != null) {
         request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
       }
+      // Command submissions ask the relay to answer with the result (within
+      // the response timeout below), so the app rarely has to poll for it.
+      if (method == 'POST' && path.endsWith('/commands')) {
+        request.headers.set('Prefer', 'wait=15');
+      }
       if (body != null) {
         request.headers.contentType = ContentType.json;
         request.write(jsonEncode(body));

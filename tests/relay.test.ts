@@ -306,6 +306,82 @@ describe('Relay protocol and isolation (fixture connector; NOT DSH end-to-end)',
     expect((await send('capabilities', {}, { id })).status).toBe(409);
     expect((await request(`/api/commands/${id}`, b)).status).toBe(404);
   });
+  test('reads stay out of storage, and Prefer: wait answers with the result', async () => {
+    const id = `read_${crypto.randomUUID()}`;
+    const answered = fetch(`${base}/api/instances/${instance.id}/commands`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${a.token}`,
+        'Content-Type': 'application/json',
+        Prefer: 'wait=5',
+      },
+      body: JSON.stringify({ id, controllerId: a.controller.id, action: 'session.list', args: {} }),
+    });
+    await until(() => commands.some((c) => c.id === wireId(id)));
+    connector.send(
+      JSON.stringify({
+        v: 1,
+        type: 'result',
+        id: wireId(id),
+        connectionEpoch: connection.epoch,
+        ok: true,
+        result: { sessions: ['kept'] },
+      }),
+    );
+    const response = await answered;
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      id,
+      status: 'succeeded',
+      result: { sessions: ['kept'] },
+    });
+    expect((await request(`/api/commands/${id}`, a)).data.status).toBe('succeeded');
+    expect((await request(`/api/commands/${id}`, b)).status).toBe(404);
+    expect(relay.db.query('SELECT COUNT(*) AS n FROM commands WHERE request_id=?').get(id)).toEqual({
+      n: 0,
+    });
+    expect(
+      relay.db
+        .query("SELECT COUNT(*) AS n FROM events WHERE kind='command.updated' AND payload LIKE ?")
+        .get(`%${id}%`),
+    ).toEqual({ n: 0 });
+  });
+  test('lease renewals are pushed to viewers, never stored', async () => {
+    const path = `/api/instances/${instance.id}/lease`;
+    const held = await request(path, a, { controllerId: a.controller.id, takeover: true });
+    const frames: any[] = [];
+    const viewer = new WebSocket(base.replace('http', 'ws') + '/ws/events?after=0', {
+      headers: { Authorization: `Bearer ${a.token}` },
+    });
+    viewer.onmessage = (e) => frames.push(JSON.parse(String(e.data)));
+    await until(() => viewer.readyState === WebSocket.OPEN);
+    const stored = () =>
+      (relay.db.query("SELECT COUNT(*) AS n FROM events WHERE kind='lease.changed'").get() as {
+        n: number;
+      }).n;
+    const before = stored();
+    await Bun.sleep(5);
+    const renewed = await request(path, a, { controllerId: a.controller.id });
+    expect(renewed.data.epoch).toBe(held.data.epoch);
+    await until(() =>
+      frames.some(
+        (f) => f.type === 'lease' && f.instanceId === instance.id && f.lease.expiresAt === renewed.data.expiresAt,
+      ),
+    );
+    expect(stored()).toBe(before);
+    viewer.close();
+  });
+  test('housekeeping never reads the commands table', async () => {
+    const query = relay.db.query.bind(relay.db),
+      seen: string[] = [];
+    relay.db.query = ((sql: string) => (seen.push(sql), query(sql))) as typeof relay.db.query;
+    try {
+      await Bun.sleep(1200);
+    } finally {
+      relay.db.query = query;
+    }
+    expect(seen.filter((sql) => /\bcommands\b/.test(sql))).toEqual([]);
+  });
   test('allowlist rejects arbitrary RPC and admin calls', async () => {
     expect((await send('exec', { command: 'echo nope' })).status).toBe(400);
     expect((await send('settings.rawUpdate')).status).toBe(400);
@@ -339,8 +415,10 @@ describe('Relay protocol and isolation (fixture connector; NOT DSH end-to-end)',
     aa.close();
     bb.close();
   });
+  let indeterminate = '';
   test('disconnect marks dispatched commands indeterminate and offline fails', async () => {
     const pending = await send('session.list');
+    indeterminate = pending.data.id;
     connector.close();
     await until(() => connection.socket.readyState === WebSocket.CLOSED);
     await Bun.sleep(30);
@@ -349,12 +427,8 @@ describe('Relay protocol and isolation (fixture connector; NOT DSH end-to-end)',
     expect((await send('session.list')).status).toBe(409);
   });
   test('reconnection increments epoch and accepts durable result reconciliation', async () => {
-    const pending = commands.at(-1)!;
-    const publicId = (
-      relay.db.query('SELECT request_id FROM commands WHERE id=?').get(pending.id) as {
-        request_id: string;
-      }
-    ).request_id;
+    const publicId = indeterminate,
+      pending = { id: wireId(publicId) };
     const oldEpoch = connection.epoch;
     connection = await openConnector(credential);
     connector = connection.socket;

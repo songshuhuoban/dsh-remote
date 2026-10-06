@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { asRecord, type Instance, type RemoteEvent } from './api';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { asRecord, type Instance, type Lease, type RemoteEvent } from './api';
 export type PendingApproval = Record<string, unknown> & {
   instanceId: string;
   sessionId: string;
@@ -22,6 +22,19 @@ export interface StreamHealth {
   nextRetryAt?: number;
   /** Last measured round trip to the relay, while live. */
   latencyMs?: number;
+}
+/** Puts a lease the relay reported (a renewal, or our own lease request) into the instance list. */
+export function setInstanceLease(client: QueryClient, instanceId: string, lease: Lease | null) {
+  client.setQueryData<{ instances: Instance[] }>(['instances'], (old) =>
+    old
+      ? {
+          ...old,
+          instances: old.instances.map((item) =>
+            item.id === instanceId ? { ...item, lease } : item,
+          ),
+        }
+      : old,
+  );
 }
 export function useEvents(enabled: boolean) {
   const client = useQueryClient();
@@ -83,6 +96,11 @@ export function useEvents(enabled: boolean) {
           pings.delete(Number(frame.id));
           if (sentAt !== undefined)
             setHealth({ attempt: 0, latencyMs: Math.round(performance.now() - sentAt) });
+          return;
+        }
+        // Lease renewals are pushed, not stored as events: no sequence number and no refetch.
+        if (frame.type === 'lease' && typeof frame.instanceId === 'string') {
+          setInstanceLease(client, frame.instanceId, (frame.lease as Lease | null) ?? null);
           return;
         }
         if (frame.type === 'snapshot') {

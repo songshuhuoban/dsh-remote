@@ -84,6 +84,17 @@ class Instance {
   final List<String> capabilities;
   bool heldBy(String? controller) =>
       lease != null && !lease!.expired && lease!.controllerId == controller;
+
+  /// This instance with [next] as its lease, e.g. a renewal the relay pushed.
+  Instance withLease(Lease? next) => Instance(
+    id: id,
+    name: name,
+    online: online,
+    status: status,
+    lastSeenAt: lastSeenAt,
+    lease: next,
+    capabilities: capabilities,
+  );
   bool controlledBy(String? controller) =>
       status == 'online' && online && heldBy(controller) && !lease!.pending;
 }

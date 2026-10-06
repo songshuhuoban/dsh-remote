@@ -595,9 +595,19 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// Puts a lease the relay reported into the instance list.
+  void _setLease(String instanceId, Lease? lease) {
+    _setInstances([
+      for (final item in instances)
+        item.id == instanceId ? item.withLease(lease) : item,
+    ]);
+    _notify();
+  }
+
   Future<void> _maintain() async {
     if (_renewing || !signedIn) return;
     _renewing = true;
+    var stale = false;
     try {
       await _withLeaseLock(() async {
         for (final id in List.of(_ownedLeases)) {
@@ -609,17 +619,25 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
           }
           if (current!.lease!.pending) continue;
           try {
-            await api!.request(
+            final lease = await api!.request(
               'POST',
               'api/instances/${Uri.encodeComponent(id)}/lease',
               {'controllerId': controllerId},
             );
+            if (lease['controllerId'] is String) {
+              _setLease(id, Lease.fromJson(lease));
+            } else {
+              stale = true;
+            }
           } catch (e) {
             _ownedLeases.remove(id);
             error = e.toString();
+            stale = true;
           }
         }
-        await refresh();
+        // A live stream reports changes and pushes renewals; every poll is a
+        // billed relay request, so poll only without it or after a failure.
+        if (stale || connection != 'Live') await refresh();
       });
     } finally {
       _renewing = false;
@@ -1098,6 +1116,16 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
               pendingApprovals.clear();
               streams.clear();
               _notify();
+              return;
+            }
+            // Lease renewals are pushed, not stored as events (no sequence).
+            if (json['type'] == 'lease' && json['instanceId'] is String) {
+              _setLease(
+                json['instanceId'] as String,
+                json['lease'] is Map
+                    ? Lease.fromJson(object(json['lease']))
+                    : null,
+              );
               return;
             }
             if (json['type'] != 'event') return;
