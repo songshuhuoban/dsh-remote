@@ -34,7 +34,9 @@ jobs:
       - run: bun run build:plugin
       - name: Pack
         working-directory: packages/dsh-plugin
-        run: npm pack --pack-destination "$RUNNER_TEMP/release"
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          npm pack --pack-destination "$RUNNER_TEMP/release"
       - uses: actions/upload-artifact@v4
         with:
           name: plugin
@@ -62,16 +64,22 @@ jobs:
         working-directory: apps/mobile
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          DSH_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          DSH_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           # Never publish an unsigned or debug-signed APK.
           if [ -z "$KEYSTORE_BASE64" ]; then
             echo "::error::Release key missing; run apps/mobile/tool/create-release-key.ps1 once"
             exit 1
           fi
+          # Windows PowerShell 5.1 ends piped secrets with CRLF; all three values are
+          # whitespace-free (base64 / URL-safe), so line endings and spaces are stripped.
+          clean() { printf '%s' "$1" | tr -d '
+ '; }
           export DSH_ANDROID_KEYSTORE="$RUNNER_TEMP/release.p12"
-          echo "$KEYSTORE_BASE64" | base64 -d > "$DSH_ANDROID_KEYSTORE"
+          export DSH_ANDROID_KEYSTORE_PASSWORD="$(clean "$KEYSTORE_PASSWORD")"
+          export DSH_ANDROID_KEY_ALIAS="$(clean "$KEY_ALIAS")"
+          clean "$KEYSTORE_BASE64" | base64 -d > "$DSH_ANDROID_KEYSTORE"
           flutter build apk --release
           rm -f "$DSH_ANDROID_KEYSTORE"
           mkdir -p "$RUNNER_TEMP/release"
