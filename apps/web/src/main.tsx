@@ -87,6 +87,7 @@ import {
   requestPairing,
   type Pairing,
 } from './pairing';
+import { WorkspacePicker } from './workspace-picker';
 import './styles.css';
 const THEME_KEY = 'dsh.appearance';
 const NEW_INSTANCE = '__new_instance__';
@@ -1071,6 +1072,7 @@ function Console({ identity }: { identity: Identity }) {
         <CreateSession
           instanceId={id}
           controllerId={identity.controller.id}
+          capabilities={instance?.capabilities ?? []}
           lease={
             holding && !operations.operations.some((op) => op.instanceId === id) ? lease! : null
           }
@@ -1365,17 +1367,22 @@ function CreateInstance({
 function CreateSession({
   instanceId,
   controllerId,
+  capabilities,
   lease,
   onClose,
   onCreated,
 }: {
   instanceId: string;
   controllerId: string;
+  capabilities: string[];
   lease: Lease | null;
   onClose: () => void;
   onCreated: (id: string) => void;
 }) {
+  // Plugins before the folder picker only take a typed path.
+  const browsable = capabilities.includes('workspace.browse');
   const [cwd, setCwd] = useState(''),
+    [picked, setPicked] = useState<string>(),
     [createdSessionId] = useState(() => crypto.randomUUID()),
     client = useQueryClient(),
     operations = useOperations(),
@@ -1394,7 +1401,16 @@ function CreateSession({
           instanceId,
           controllerId,
           action: 'session.create',
-          args: { sessionId: createdSessionId, ...(cwd.trim() ? { cwd: cwd.trim() } : {}) },
+          args: {
+            sessionId: createdSessionId,
+            ...(browsable
+              ? picked
+                ? { cwd: picked }
+                : {}
+              : cwd.trim()
+                ? { cwd: cwd.trim() }
+                : {}),
+          },
           leaseEpoch: lease.epoch,
           references: {},
         }),
@@ -1415,19 +1431,31 @@ function CreateSession({
           mutation.mutate();
         }}
       >
-        <label>
-          工作目录
-          <input
-            autoFocus
-            value={cwd}
-            onChange={(e) => setCwd(e.target.value)}
-            placeholder="默认：第一个允许的目录"
+        {browsable ? (
+          <WorkspacePicker
+            instanceId={instanceId}
+            controllerId={controllerId}
+            value={picked}
+            onChange={setPicked}
           />
-        </label>
+        ) : (
+          <label>
+            工作目录
+            <input
+              autoFocus
+              value={cwd}
+              onChange={(e) => setCwd(e.target.value)}
+              placeholder="默认：第一个允许的目录"
+            />
+          </label>
+        )}
         <Err error={mutation.error} />
         <RecoveryPanel instanceId={instanceId} />
         <div className="modal-actions">
-          <button className="primary" disabled={!lease || mutation.isPending}>
+          <button
+            className="primary"
+            disabled={!lease || mutation.isPending || (browsable && !picked)}
+          >
             {mutation.isPending ? <Spinner /> : null}创建会话
           </button>
           <button type="button" className="quiet" onClick={onClose}>

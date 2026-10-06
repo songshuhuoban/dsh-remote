@@ -6,7 +6,10 @@ export interface RemoteSettings {
   allowedWorkspaceRoots: string[];
   allowedPermissionPresets: string[];
   allowedAgentPresets: string[];
+  /** Remote devices may browse this computer's folders and open sessions in any of them. */
+  allowAnyWorkspace: boolean;
 }
+/** List settings, which the profile YAML can also fix. */
 export const SETTINGS_FIELDS = [
   'allowedWorkspaceRoots',
   'allowedPermissionPresets',
@@ -16,6 +19,7 @@ export const DEFAULT_SETTINGS: RemoteSettings = {
   allowedWorkspaceRoots: [],
   allowedPermissionPresets: ['workspace-write', 'read-only'],
   allowedAgentPresets: [],
+  allowAnyWorkspace: false,
 };
 const MAX_ITEMS = 64;
 
@@ -36,17 +40,24 @@ function list(value: unknown, field: string, check?: (item: string) => string | 
 export function validateSettings(
   input: unknown,
 ): { value: Partial<RemoteSettings> } | { error: string } {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return { error: 'Expected an object' };
+  if (!input || typeof input !== 'object' || Array.isArray(input))
+    return { error: 'Expected an object' };
   const value: Partial<RemoteSettings> = {};
   for (const [field, entry] of Object.entries(input)) {
-    if (!(SETTINGS_FIELDS as readonly string[]).includes(field)) return { error: `Unknown field ${field}` };
+    if (field === 'allowAnyWorkspace') {
+      if (typeof entry !== 'boolean') return { error: 'allowAnyWorkspace must be true or false' };
+      value.allowAnyWorkspace = entry;
+      continue;
+    }
+    if (!(SETTINGS_FIELDS as readonly string[]).includes(field))
+      return { error: `Unknown field ${field}` };
     const problem = list(entry, field, (item) =>
       field === 'allowedWorkspaceRoots' && !isAbsolute(item)
         ? 'Workspace folders must be absolute paths'
         : undefined,
     );
     if (problem) return { error: problem };
-    value[field as keyof RemoteSettings] = [...(entry as string[])];
+    value[field as (typeof SETTINGS_FIELDS)[number]] = [...(entry as string[])];
   }
   return { value };
 }

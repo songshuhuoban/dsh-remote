@@ -71,7 +71,42 @@ afterAll(() => {
   vi.unstubAllGlobals();
 });
 
-/** A host that acknowledges leases and answers every command with an empty success. */
+/** Folders of the fixture host: one allowed root, browsing anywhere switched on. */
+const folders: Record<string, { parent: string | null; children: string[] }> = {
+  '/srv/proj': { parent: '/srv', children: ['api', 'web'] },
+  '/srv/proj/api': { parent: '/srv/proj', children: [] },
+};
+const created: unknown[] = [];
+function answer(action: string, args: Record<string, unknown>): unknown {
+  if (action === 'workspace.list')
+    return { roots: [{ name: 'proj', path: '/srv/proj' }], anyWorkspace: true };
+  if (action === 'workspace.browse') {
+    const path = args.path as string | undefined;
+    if (!path)
+      return {
+        path: null,
+        parent: null,
+        directories: [
+          { name: 'proj', path: '/srv/proj' },
+          { name: 'me', path: '/home/me' },
+        ],
+        truncated: false,
+      };
+    const folder = folders[path]!;
+    return {
+      path,
+      parent: folder.parent,
+      directories: folder.children.map((name) => ({ name, path: `${path}/${name}` })),
+      truncated: false,
+    };
+  }
+  if (action === 'session.create') {
+    created.push(args);
+    return { sessionId: args.sessionId };
+  }
+  return { items: [] };
+}
+/** A host that acknowledges leases and answers commands from the fixture above. */
 function connect(token: string) {
   let epoch = 0;
   const socket = new NodeWebSocket(`${base.replace('http', 'ws')}/ws/connector`, {
@@ -82,7 +117,11 @@ function connect(token: string) {
     const send = (value: unknown) => socket.send(JSON.stringify({ v: 1, ...(value as object) }));
     if (frame.type === 'welcome') {
       epoch = frame.connectionEpoch;
-      send({ type: 'hello', bootId: 'control-fixture', capabilities: ['session.list'] });
+      send({
+        type: 'hello',
+        bootId: 'control-fixture',
+        capabilities: ['session.list', 'session.create', 'workspace.list', 'workspace.browse'],
+      });
     } else if (frame.type === 'lease')
       send({
         type: 'lease.ack',
@@ -96,7 +135,7 @@ function connect(token: string) {
         id: frame.id,
         connectionEpoch: epoch,
         ok: true,
-        result: { items: [] },
+        result: answer(frame.action, frame.args),
       });
   });
   return socket;
@@ -161,4 +200,25 @@ it('connecting takes free control, a takeover leaves this tab watching, and taki
   fireEvent.click(prompt.getByRole('button', { name: '接管' }));
   expect(await screen.findByRole('heading', { name: '新建会话' })).toBeTruthy();
   await waitFor(() => expect(screen.getByRole('button', { name: /控制中/ })).toBeTruthy());
+
+  // The host's allowed folder is offered and chosen; other folders are browsed, never typed.
+  const dialog = within(screen.getByRole('dialog'));
+  const root = await dialog.findByRole('radio', { name: /proj/ });
+  await waitFor(() => expect(root.getAttribute('aria-checked')).toBe('true'));
+  expect(dialog.queryByRole('textbox')).toBeNull();
+  fireEvent.click(dialog.getByRole('button', { name: '浏览其他目录' }));
+  fireEvent.click(await dialog.findByRole('button', { name: /^api/ }));
+  expect(await dialog.findByText('/srv/proj/api')).toBeTruthy();
+  expect(dialog.getByText('没有子文件夹')).toBeTruthy();
+  fireEvent.click(dialog.getByRole('button', { name: '使用此目录' }));
+  const chosen = await dialog.findByRole('radio', { name: /api/ });
+  expect(chosen.getAttribute('aria-checked')).toBe('true');
+  await waitFor(() =>
+    expect((dialog.getByRole('button', { name: '创建会话' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
+  fireEvent.click(dialog.getByRole('button', { name: '创建会话' }));
+  await waitFor(() => expect(created).toHaveLength(1));
+  expect(created[0]).toMatchObject({ cwd: '/srv/proj/api' });
 });

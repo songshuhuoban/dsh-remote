@@ -9,14 +9,14 @@ A Cordis plugin that connects a DSH computer to a DSH Remote relay, so the web c
 1. In DSH, open **Plugins → Add plugin** and paste the plugin address your relay serves, `https://<relay>/plugin/dsh-remote-plugin-<version>-<hash>.tgz`. The console's pairing dialog shows the exact address with a copy button, and `https://<relay>/plugin/manifest.json` names the current file. Each relay deploy ships the plugin build it was made with, so the two always match. Enable it. (DSH `0.2.1-alpha.1` may fail to reload a newly enabled plugin live on Windows; restart DSH once if its page does not appear.)
 2. In the relay console, choose **连接新实例** (or **配对** on an offline instance) and copy the pairing link. It works once and expires after 10 minutes.
 3. On the plugin's page in DSH, paste the link and choose **配对**. The status turns to **已连接**.
-4. Add the workspace folders remote devices may use. Sessions outside them are invisible and cannot be created remotely.
+4. Add the workspace folders remote devices may use. Sessions outside them are invisible and cannot be created remotely. The console's 新建会话 dialog lists these folders and can browse their subfolders; switch on **允许远程选择本机任意目录** to let remote devices browse and use any folder on this computer (off by default, saved with the other settings, applies immediately).
 
 Pairing, unpairing and folder changes are accepted only from a browser on the DSH computer itself; remote browsers see the page read-only.
 
 ## How it runs
 
 - **Credential.** Pairing exchanges the one-time code for this computer's connector token and stores it, with the relay address and instance, as a record in DSH's credential store (`$DSH_HOME/.credentials.yaml`, owner-only). It never enters profile YAML or the browser. Pairing again replaces it; the relay revokes the previous token.
-- **Policy.** Workspace folders and the permission/agent preset allowlists live in `$DSH_HOME/dsh-remote/settings.json` and apply to the next permission check without a reconnect.
+- **Policy.** Workspace folders, `allowAnyWorkspace` and the permission/agent preset allowlists live in `$DSH_HOME/dsh-remote/settings.json` and apply to the next permission check without a reconnect.
 - **Connector.** A bundled connector (`dist/connector.js`) runs as a private child process of DSH's own runtime (Node, or Electron in Node mode on desktop), with secrets and `DSH_*` variables removed from its environment. It opens no listener, keeps a per-instance SQLite journal in `$DSH_HOME/dsh-remote/`, and honours `HTTPS_PROXY`.
 - **Status.** The page shows connecting, connected, credential rejected (pair again) or relay unreachable, and offers reconnect and unpair.
 

@@ -22,7 +22,7 @@ interface Status {
   onlineSince?: number;
   nextRetryAt?: number;
   workspaceRoots: Array<{ path: string; available: boolean }>;
-  settings: Record<SettingsField, string[]>;
+  settings: Record<SettingsField, string[]> & { allowAnyWorkspace?: boolean };
   lockedByProfile: SettingsField[];
   localControl: boolean;
 }
@@ -292,6 +292,27 @@ function ListEditor({
   );
 }
 
+/** One switch: whether remote devices may browse and use any folder on this computer. */
+function AnyWorkspace({ t, status, onChange }: { t: T; status: Status; onChange(s: Status): void }) {
+  const { busy, error, run } = useAction(t, onChange);
+  const on = !!status.settings.allowAnyWorkspace;
+  return (
+    <section>
+      <label className="dshr-check">
+        <input
+          type="checkbox"
+          checked={on}
+          disabled={busy || !status.localControl}
+          onChange={(e) => void run('settings', { allowAnyWorkspace: e.target.checked })}
+        />
+        <span>{t('anyWorkspace')}</span>
+      </label>
+      <p className="dshr-muted">{t(on ? 'anyWorkspaceOn' : 'anyWorkspaceOff')}</p>
+      {error ? <p className="dshr-error dshr-swap">{error}</p> : null}
+    </section>
+  );
+}
+
 function RemotePage(props: { view: 'summary' | 'page'; t: T }) {
   const { t } = props;
   const [status, setStatus] = useStatus();
@@ -316,6 +337,7 @@ function RemotePage(props: { view: 'summary' | 'page'; t: T }) {
         placeholder={t('rootPlaceholder')}
         validate={(value) => (isAbsolute(value) ? undefined : 'notAbsolute')}
       />
+      <AnyWorkspace t={t} status={status} onChange={setStatus} />
       <details>
         <summary>{t('advanced')}</summary>
         <ListEditor
@@ -357,6 +379,8 @@ const CSS = `
 .dshr-actions{display:flex;flex-wrap:wrap;gap:16px;margin-top:4px}
 .dshr .dshr-actions button{padding:0;min-height:0;background:transparent;color:var(--dsw-alias-link,#36c);font-size:13px}
 .dshr-inline{display:flex;gap:8px;margin-top:4px}
+.dshr-check{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
+.dshr-check input{margin:0}
 .dshr-inline input{flex:1;min-width:0}
 .dshr button,.dshr input{font:inherit;font-size:13px;padding:7px 12px;border:0;border-radius:8px;color:inherit;transition:background-color 200ms ease-out,opacity 200ms ease-out}
 .dshr input{background:var(--dsw-specific-selector,#8881)}

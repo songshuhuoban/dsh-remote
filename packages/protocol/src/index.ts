@@ -8,6 +8,8 @@ export const READ_ACTIONS = [
   'settings.describe',
   'attachment.read',
   'capabilities',
+  'workspace.list',
+  'workspace.browse',
 ] as const;
 export const WRITE_ACTIONS = [
   'repository.inspect',

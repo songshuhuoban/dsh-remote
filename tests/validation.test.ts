@@ -33,6 +33,8 @@ const valid: Record<Action, Record<string, unknown>> = {
   },
   'settings.describe': {},
   'settings.update': { sessionId: 's', permissionPreset: 'read-only', expectedRevision: 1 },
+  'workspace.list': {},
+  'workspace.browse': { path: '/workspace' },
 };
 const copy = (value: unknown) => JSON.parse(JSON.stringify(value));
 const accepts = (action: unknown, args: unknown) =>

@@ -1,6 +1,7 @@
 import { randomUUID, createHash } from 'node:crypto';
-import { realpathSync } from 'node:fs';
-import { relative, isAbsolute } from 'node:path';
+import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { inspectRepository, repositoryPromptContext } from './repositories.ts';
 import type { RepositoryContext } from '../../protocol/src/index.ts';
 import { validateCommand } from '../../protocol/src/validation.ts';
@@ -32,13 +33,37 @@ export const CAPABILITIES = [
   'settings.describe',
   'settings.update',
   'capabilities',
+  'workspace.list',
+  'workspace.browse',
 ];
+/** Folders listed per browse request; a larger folder is reported as truncated. */
+const MAX_BROWSE_ENTRIES = 500;
+/** Where browsing anywhere starts: the home folder, then each drive (Windows) or `/`. */
+function hostPlaces(): string[] {
+  const places = [homedir()];
+  if (process.platform === 'win32') {
+    for (let code = 65; code <= 90; code++) {
+      const drive = `${String.fromCharCode(code)}:\\`;
+      if (existsSync(drive)) places.push(drive);
+    }
+  } else places.push('/');
+  return places;
+}
+const isDirectory = (path: string) => {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+};
 /** Read on every check, so live configuration edits apply without restarting the adapter. */
 export interface AdapterPolicy {
   readonly allowedWorkspaceRoots: readonly string[];
   readonly allowedPermissionPresets?: readonly string[];
   readonly allowedAgentPresets?: readonly string[];
   readonly approvalTimeoutMs?: number;
+  /** Set on the DSH computer: remote devices may use any existing folder, not just the roots. */
+  readonly allowAnyWorkspace?: boolean;
 }
 export interface HostEvent {
   id: string;
@@ -194,6 +219,7 @@ export class DshAdapter {
     if (typeof cwd !== 'string') return false;
     try {
       const target = realpathSync(cwd);
+      if (this.policy.allowAnyWorkspace) return isAbsolute(target) && isDirectory(target);
       return this.roots().some((root) => {
         const tail = relative(root, target);
         return (
@@ -206,6 +232,58 @@ export class DshAdapter {
     } catch {
       return false;
     }
+  }
+  /**
+   * One folder level for the remote folder picker: subfolders only, never files. Without a path
+   * it returns the starting places. Only folders a session could be opened in can be listed.
+   */
+  private browse(path: unknown) {
+    const named = (path: string) => ({ name: basename(path) || path, path });
+    if (path === undefined) {
+      const places = [...this.roots(), ...(this.policy.allowAnyWorkspace ? hostPlaces() : [])];
+      return {
+        path: null,
+        parent: null,
+        directories: [...new Set(places)].map(named),
+        truncated: false,
+      };
+    }
+    let target: string;
+    try {
+      target = realpathSync(String(path));
+    } catch {
+      throw new AdapterError('not_found', 'Folder does not exist on this computer');
+    }
+    if (!isDirectory(target)) throw new AdapterError('not_a_directory', 'Not a folder');
+    if (!this.permitted(target))
+      throw new AdapterError(
+        'workspace_forbidden',
+        'Folder is outside the remotely allowed folders',
+      );
+    let names: string[];
+    try {
+      names = readdirSync(target, { withFileTypes: true })
+        // Hidden and Windows system folders are noise in a workspace picker.
+        .filter((entry) => !/^[.$]/.test(entry.name) && entry.name !== 'System Volume Information')
+        .filter(
+          (entry) =>
+            entry.isDirectory() ||
+            (entry.isSymbolicLink() && isDirectory(join(target, entry.name))),
+        )
+        .map((entry) => entry.name)
+        .sort((a, b) => a.localeCompare(b));
+    } catch {
+      throw new AdapterError('access_denied', 'This folder cannot be read');
+    }
+    const up = dirname(target);
+    return {
+      path: target,
+      parent: up !== target && this.permitted(up) ? up : null,
+      directories: names
+        .slice(0, MAX_BROWSE_ENTRIES)
+        .map((name) => ({ name, path: join(target, name) })),
+      truncated: names.length > MAX_BROWSE_ENTRIES,
+    };
   }
   private async checkSession(id: string): Promise<void> {
     const inspection = await this.ctx.sessionController.inspect(id);
@@ -400,6 +478,15 @@ export class DshAdapter {
           coldReadActivates: false,
           modelSelectAlsoUpdatesDefault: true,
         };
+      case 'workspace.list':
+        only(args, []);
+        return {
+          roots: this.roots().map((path) => ({ name: basename(path) || path, path })),
+          anyWorkspace: !!this.policy.allowAnyWorkspace,
+        };
+      case 'workspace.browse':
+        only(args, ['path']);
+        return this.browse(args.path);
       case 'session.list': {
         only(args, []);
         const value = (await controller.list({}, signal)) as { items: Array<{ cwd?: string }> };
@@ -441,6 +528,8 @@ export class DshAdapter {
             'Use an explicitly allowed cwd for remote session creation',
           );
         const cwd = args.cwd ?? this.roots()[0];
+        if (cwd === undefined)
+          throw new AdapterError('no_workspace', 'No folder is allowed for remote sessions yet');
         if (!this.permitted(cwd))
           throw new AdapterError(
             'workspace_forbidden',

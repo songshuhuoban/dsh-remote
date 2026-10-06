@@ -42,6 +42,8 @@ const fields: Record<Action, readonly string[]> = {
   'approval.respond': ['sessionId', 'approvalId', 'bootId', 'presentationHash', 'outcome'],
   'settings.describe': ['sessionId'],
   'settings.update': ['sessionId', 'permissionPreset', 'agentPreset', 'expectedRevision'],
+  'workspace.list': [],
+  'workspace.browse': ['path'],
 };
 class InvalidArguments extends Error {}
 function fail(message: string): never {
@@ -329,6 +331,13 @@ export function validateCommand(action: unknown, raw: unknown): string | null {
         break;
       case 'session.page':
         page(args);
+        break;
+      case 'workspace.browse':
+        // Absent: the starting places. The Host decides what may be listed.
+        if (args.path !== undefined) {
+          text(args.path, 'path', 4096);
+          if (/[\x00-\x1f]/.test(args.path)) fail('path must not contain control characters');
+        }
         break;
     }
     return null;

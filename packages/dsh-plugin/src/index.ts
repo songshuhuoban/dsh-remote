@@ -5,7 +5,15 @@
 import { isAbsolute, dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { openSync, closeSync, fstatSync, statSync, readFileSync, existsSync, constants } from 'node:fs';
+import {
+  openSync,
+  closeSync,
+  fstatSync,
+  statSync,
+  readFileSync,
+  existsSync,
+  constants,
+} from 'node:fs';
 import z from '@deepseek-ai/schemastery';
 import type { AdapterPolicy } from './adapter.ts';
 import type { DshHostContext } from './host.ts';
@@ -55,7 +63,9 @@ export const Config = z.object({
 export function manualConfigIssues(input: Record<string, unknown>): string[] {
   const issues: string[] = [];
   if ('connectorToken' in input)
-    issues.push('Inline connectorToken is forbidden; pair from the Plugins page or use connectorTokenFile');
+    issues.push(
+      'Inline connectorToken is forbidden; pair from the Plugins page or use connectorTokenFile',
+    );
   if (input.relayUrl !== undefined || input.connectorTokenFile !== undefined) {
     if (typeof input.relayUrl !== 'string' || !input.relayUrl.trim())
       issues.push('relayUrl is required with connectorTokenFile');
@@ -63,7 +73,10 @@ export function manualConfigIssues(input: Record<string, unknown>): string[] {
       issues.push('connectorTokenFile must be an absolute private credential file');
   }
   for (const key of ['journalPath', 'connectorPath'] as const)
-    if (input[key] !== undefined && (typeof input[key] !== 'string' || !isAbsolute(input[key] as string)))
+    if (
+      input[key] !== undefined &&
+      (typeof input[key] !== 'string' || !isAbsolute(input[key] as string))
+    )
       issues.push(`${key} must be absolute`);
   return issues;
 }
@@ -139,10 +152,7 @@ function pairingPayload(value: unknown): PairingPayload | undefined {
     : undefined;
 }
 
-export type RemoteState =
-  | 'unpaired'
-  | 'starting'
-  | ConnectorReport['state'];
+export type RemoteState = 'unpaired' | 'starting' | ConnectorReport['state'];
 export interface RemoteStatus {
   mode: 'paired' | 'manual' | 'unpaired';
   state: RemoteState;
@@ -156,7 +166,7 @@ export interface RemoteStatus {
   workspaceRoots: Array<{ path: string; available: boolean }>;
   settings: RemoteSettings;
   /** Fields set in the profile YAML; the Plugins page shows them read-only. */
-  lockedByProfile: Array<keyof RemoteSettings>;
+  lockedByProfile: Array<(typeof SETTINGS_FIELDS)[number]>;
   /** Pairing and policy changes are accepted only from a browser on this machine. */
   localControl: boolean;
 }
@@ -180,12 +190,13 @@ export function apply(ctx: PluginContext, config: PluginConfig): void {
   let settings = loadSettings(settingsPath, (message) => ctx.logger.warn(message));
   // The schema resolves unset lists to []; only a non-empty profile list overrides the page.
   const lockedByProfile = SETTINGS_FIELDS.filter((field) => !!config[field]?.length);
-  const pick = (field: keyof RemoteSettings) =>
+  const pick = (field: (typeof SETTINGS_FIELDS)[number]) =>
     lockedByProfile.includes(field) ? config[field]! : settings[field];
   const effective = (): RemoteSettings => ({
     allowedWorkspaceRoots: pick('allowedWorkspaceRoots'),
     allowedPermissionPresets: pick('allowedPermissionPresets'),
     allowedAgentPresets: pick('allowedAgentPresets'),
+    allowAnyWorkspace: settings.allowAnyWorkspace,
   });
   // Getters: every permission check sees the latest saved policy without a reconnect.
   const policy: AdapterPolicy = {
@@ -198,6 +209,9 @@ export function apply(ctx: PluginContext, config: PluginConfig): void {
     get allowedAgentPresets() {
       return effective().allowedAgentPresets;
     },
+    get allowAnyWorkspace() {
+      return settings.allowAnyWorkspace;
+    },
     approvalTimeoutMs: config.approvalTimeoutMs,
   };
   const bundled = fileURLToPath(new URL('./connector.js', import.meta.url));
@@ -207,7 +221,10 @@ export function apply(ctx: PluginContext, config: PluginConfig): void {
       : [process.execPath, bundled];
   const credentials = () => ctx.get('credentials') as CredentialsService | undefined;
 
-  let status: Omit<RemoteStatus, 'workspaceRoots' | 'settings' | 'lockedByProfile' | 'localControl'> = {
+  let status: Omit<
+    RemoteStatus,
+    'workspaceRoots' | 'settings' | 'lockedByProfile' | 'localControl'
+  > = {
     mode: manual ? 'manual' : 'unpaired',
     state: manual ? 'starting' : 'unpaired',
     since: Date.now(),
@@ -260,7 +277,13 @@ export function apply(ctx: PluginContext, config: PluginConfig): void {
         const store = credentials();
         const pairing = store ? pairingPayload(await store.readRecord(PAIRING_KEY)) : undefined;
         if (!pairing) {
-          update({ mode: 'unpaired', state: 'unpaired', relayUrl: undefined, instance: undefined, detail: undefined });
+          update({
+            mode: 'unpaired',
+            state: 'unpaired',
+            relayUrl: undefined,
+            instance: undefined,
+            detail: undefined,
+          });
           return;
         }
         update({ mode: 'paired', relayUrl: pairing.relayUrl, instance: pairing.instance });
@@ -294,7 +317,10 @@ export function apply(ctx: PluginContext, config: PluginConfig): void {
   }, 'dsh-remote: connector lifecycle');
 
   const error = (status: number, code: string, message: string) =>
-    Response.json({ error: { code, message } }, { status, headers: { 'cache-control': 'no-store' } });
+    Response.json(
+      { error: { code, message } },
+      { status, headers: { 'cache-control': 'no-store' } },
+    );
   const ok = (request: Request) =>
     Response.json(view(request), { headers: { 'cache-control': 'no-store' } });
   ctx.inject(['connection'], (child) => {
@@ -317,9 +343,14 @@ export function apply(ctx: PluginContext, config: PluginConfig): void {
           if (!requestIsLocal(request))
             return error(403, 'local_only', 'Pair from a browser on the DSH computer');
           if (manual)
-            return error(409, 'manual_mode', 'This profile configures relayUrl and a token file manually');
+            return error(
+              409,
+              'manual_mode',
+              'This profile configures relayUrl and a token file manually',
+            );
           const store = credentials();
-          if (!store) return error(503, 'credentials_unavailable', 'DSH credentials are unavailable');
+          if (!store)
+            return error(503, 'credentials_unavailable', 'DSH credentials are unavailable');
           const body = (await request.json().catch(() => null)) as { link?: unknown } | null;
           if (typeof body?.link !== 'string' || body.link.length > 2000)
             return error(400, 'invalid_link', 'Paste the pairing link shown by the relay');
@@ -329,7 +360,11 @@ export function apply(ctx: PluginContext, config: PluginConfig): void {
             await store.modifyRecord(PAIRING_KEY, async () => ({ kind: 'grant', payload }));
           } catch (failure) {
             if (failure instanceof PairingError)
-              return error(failure.code === 'unreachable' ? 502 : 400, failure.code, failure.message);
+              return error(
+                failure.code === 'unreachable' ? 502 : 400,
+                failure.code,
+                failure.message,
+              );
             throw failure;
           }
           await restart();
@@ -341,11 +376,23 @@ export function apply(ctx: PluginContext, config: PluginConfig): void {
         'POST',
         async (request) => {
           if (!requestIsLocal(request))
-            return error(403, 'local_only', 'Change remote access from a browser on the DSH computer');
+            return error(
+              403,
+              'local_only',
+              'Change remote access from a browser on the DSH computer',
+            );
           const checked = validateSettings(await request.json().catch(() => null));
           if ('error' in checked) return error(400, 'invalid_settings', checked.error);
-          if (Object.keys(checked.value).some((field) => lockedByProfile.includes(field as keyof RemoteSettings)))
-            return error(409, 'locked_by_profile', 'This setting is fixed in the DSH profile configuration');
+          if (
+            Object.keys(checked.value).some((field) =>
+              (lockedByProfile as string[]).includes(field),
+            )
+          )
+            return error(
+              409,
+              'locked_by_profile',
+              'This setting is fixed in the DSH profile configuration',
+            );
           const next = { ...settings, ...checked.value };
           saveSettings(settingsPath, next);
           settings = next;
@@ -359,7 +406,11 @@ export function apply(ctx: PluginContext, config: PluginConfig): void {
           if (!requestIsLocal(request))
             return error(403, 'local_only', 'Unpair from a browser on the DSH computer');
           if (manual)
-            return error(409, 'manual_mode', 'This profile configures relayUrl and a token file manually');
+            return error(
+              409,
+              'manual_mode',
+              'This profile configures relayUrl and a token file manually',
+            );
           await credentials()?.deleteRecord(PAIRING_KEY);
           await restart();
           return ok(request);
@@ -374,7 +425,9 @@ export function apply(ctx: PluginContext, config: PluginConfig): void {
           requestBody: 'buffered',
           fetch: (request) =>
             handler(request).catch((failure) => {
-              ctx.logger.error(`dsh-remote ${path}: ${failure instanceof Error ? failure.message : String(failure)}`);
+              ctx.logger.error(
+                `dsh-remote ${path}: ${failure instanceof Error ? failure.message : String(failure)}`,
+              );
               return error(500, 'internal', 'DSH Remote could not complete the request');
             }),
         });

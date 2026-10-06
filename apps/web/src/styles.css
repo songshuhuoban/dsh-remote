@@ -1280,6 +1280,75 @@ select.theme-picker {
   margin-top: 8px;
 }
 
+/* Folder picker: allowed folders first; browsing swaps the same element in place. */
+.workspace-picker {
+  margin-top: 16px;
+}
+.field-label {
+  display: block;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 288px;
+  margin: 6px 0 8px;
+  overflow: auto;
+}
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px;
+  justify-content: flex-start;
+  border-radius: var(--dsw-radius-md);
+  font-weight: 400;
+  text-align: left;
+}
+.picker-row > span {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.picker-row strong {
+  font-weight: 500;
+}
+.picker-row small {
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.picker-row[aria-checked='true'] {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.picker-enter {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+}
+.picker-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.picker-path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+.picker-note {
+  margin: 6px 0 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
 /* Pairing: one link that turns into "已连接" when the instance comes online. */
 .pairing > p:first-child {
   color: var(--dsw-alias-label-secondary);

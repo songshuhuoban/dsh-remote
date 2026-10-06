@@ -24,6 +24,8 @@ export type Instance = {
   bootId?: string | null;
   connectionEpoch?: number;
   lease?: Lease | null;
+  /** Actions the connected plugin version supports, e.g. `workspace.browse`. */
+  capabilities?: string[];
 };
 export type Identity = { user: User; controller: Controller };
 export type Command = { id: string; status: string; result?: unknown; error?: unknown };
@@ -78,6 +80,11 @@ const ERROR_TEXT: Record<string, string> = {
   ACCOUNT_EXISTS: '该邮箱已注册，请直接登录',
   REGISTRATION_DISABLED: '此部署未开放注册，请联系管理员',
   INVITE_REQUIRED: '邀请码无效，请向管理员确认',
+  workspace_forbidden: '该目录不在这台实例允许远程使用的范围内',
+  no_workspace: '这台实例还没有允许远程使用的目录，请先在 DSH 的插件页添加',
+  not_found: '目录不存在',
+  not_a_directory: '这不是一个文件夹',
+  access_denied: '没有权限读取这个文件夹',
   GITHUB_INVITE_REQUIRED: '首次使用 GitHub 登录需要邀请码，填写后再试一次',
   GITHUB_CANCELLED: '已取消 GitHub 授权',
   GITHUB_INVALID_STATE: 'GitHub 授权已过期或不是从此浏览器发起，请重试',

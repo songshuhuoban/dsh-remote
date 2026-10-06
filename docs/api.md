@@ -30,11 +30,13 @@ Errors use `{error:{code,message}}` and a non-2xx HTTP status. Maximum wire fram
 
 ## Allowlisted actions
 
-Passive: `capabilities`, `session.list`, `session.read`, `session.page`, `session.projections`, `settings.describe`.
+Passive: `capabilities`, `session.list`, `session.read`, `session.page`, `session.projections`, `settings.describe`, `workspace.list`, `workspace.browse`.
+
+Folder picker: `workspace.list` returns `{roots:[{name,path}],anyWorkspace}`, the canonical folders the DSH computer allows. `workspace.browse {path?}` returns one level, `{path,parent,directories:[{name,path}],truncated}`: subfolders only (no files, hidden or Windows system folders), at most 500. Without `path` it returns the starting places: the roots, plus the home folder and drives when the DSH computer has switched on "允许远程选择本机任意目录" (`anyWorkspace`). The Host resolves every path canonically and refuses (`workspace_forbidden`) anything a session could not be opened in; `parent` is `null` at the edge of what may be listed. Plugins that predate the picker do not advertise these capabilities, and the console then falls back to a typed path.
 
 Writer: `session.create`, `session.prompt`, `session.cancel`, `session.resume`, `session.queue.update`, `model.select`, `attachment.upload`, `approval.respond`, `settings.update`.
 
-There is no arbitrary RPC, shell, file read, provider credential, plugin install or raw global-settings route. Session-scoped configuration has a positive preset allowlist and optimistic revision matching. `session.create` requires an explicit stable `sessionId`; the host additionally enforces configured canonical workspace roots.
+There is no arbitrary RPC, shell, file read, provider credential, plugin install or raw global-settings route. Session-scoped configuration has a positive preset allowlist and optimistic revision matching. `session.create` requires an explicit stable `sessionId`; the host additionally enforces configured canonical workspace roots (or any existing folder when `anyWorkspace` is on), and answers `no_workspace` when none is configured.
 
 Exact compile-time envelopes are in `packages/protocol/src/index.ts`; host command argument checks are in `packages/dsh-plugin/src/adapter.ts`, and relay checks in `apps/server/src/validation.ts`.
 
