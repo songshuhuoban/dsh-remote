@@ -233,7 +233,7 @@ enum ControlState { available, takeover, confirming, owned }
 
 /// The writer-lease control as one element:
 /// Take control → Confirming… → In control (activating releases).
-/// Reads "Take over control" when another device holds the lease.
+/// Reads "Take over" when another device holds the lease.
 class ControlButton extends StatelessWidget {
   const ControlButton({
     required this.state,
@@ -250,7 +250,7 @@ class ControlButton extends StatelessWidget {
     final enabled = onPressed != null && state != ControlState.confirming;
     final label = switch (state) {
       ControlState.available => 'Take control',
-      ControlState.takeover => 'Take over control',
+      ControlState.takeover => 'Take over',
       ControlState.confirming => 'Confirming…',
       ControlState.owned => 'In control',
     };
@@ -478,6 +478,30 @@ AlertDialog plainDialog({
   actionsOverflowAlignment: OverflowBarAlignment.start,
   actionsOverflowDirection: VerticalDirection.down,
 );
+
+/// Asks before pushing [device] off control. True takes over; "View only"
+/// and dismissing return false.
+Future<bool> takeoverDialog(BuildContext context, String device) async =>
+    await showDialog<bool>(
+      context: context,
+      builder: (context) => plainDialog(
+        title: Text('$device is in control'),
+        content: const Text(
+          'Taking over pushes that device off; it can only watch. Running tasks are not interrupted.',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Take over'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('View only'),
+          ),
+        ],
+      ),
+    ) ??
+    false;
 
 /// Short local time for status lines.
 String shortTime(DateTime value) {

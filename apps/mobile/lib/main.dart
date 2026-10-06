@@ -4,12 +4,14 @@ import 'dart:convert';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
+import 'src/api.dart';
 import 'src/models.dart';
 import 'src/credentials.dart';
 import 'src/store.dart';
 import 'src/theme.dart';
 import 'src/ui.dart';
 import 'src/repositories_page.dart';
+import 'src/workspace_picker.dart';
 
 export 'src/ui.dart' show ErrorNotice;
 
@@ -644,6 +646,152 @@ class _FleetPageState extends State<FleetPage> {
   }
 }
 
+/// Control of the instance a page shows, shared by the instance and session
+/// pages. Connecting takes control, as in remote-desktop clients: a free
+/// instance is controlled at once, a lease this device still holds is resumed
+/// after a reconnect, and another device's control is only taken after asking
+/// (see [RemoteStore.autoControlStep]). Declining, releasing or being pushed
+/// off leaves the instance watch-only until the person asks for control.
+mixin InstanceControl<T extends StatefulWidget> on State<T> {
+  RemoteStore get store;
+  String get instanceId;
+  bool get busy;
+
+  /// True while the running operation is an acquire or release.
+  bool get controlling;
+
+  /// Runs a lease operation with the page's progress and error handling.
+  Future<void> runControl(Future<void> Function() operation);
+
+  bool _onTop = true;
+  bool _choosing = false;
+  bool _checkScheduled = false;
+
+  Instance? get controlled => store.instance(instanceId);
+
+  /// The other device holding [instance]'s lease, if any.
+  String? otherHolder(Instance? instance) {
+    final lease = instance?.lease;
+    return lease != null &&
+            !lease.expired &&
+            lease.controllerId != store.controllerId
+        ? lease.controllerId
+        : null;
+  }
+
+  ControlState get controlState {
+    final instance = controlled;
+    final lease = instance?.lease;
+    if (controlling ||
+        (lease != null &&
+            !lease.expired &&
+            lease.pending &&
+            lease.controllerId == store.controllerId)) {
+      return ControlState.confirming;
+    }
+    if (store.canWrite(instanceId)) return ControlState.owned;
+    if (otherHolder(instance) != null) return ControlState.takeover;
+    return ControlState.available;
+  }
+
+  /// No control button for an offline instance.
+  bool get showsControl => (controlled?.status ?? 'offline') != 'offline';
+
+  /// Whether control can be asked for or released right now.
+  bool get controlReady =>
+      !busy && controlled?.online == true && store.connection == 'Live';
+
+  /// Call from build: notes whether this page is on top, and checks for an
+  /// automatic control step once the frame is done.
+  void watchControl(BuildContext context) {
+    _onTop = ModalRoute.isCurrentOf(context) ?? true;
+    if (_checkScheduled) return;
+    _checkScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkScheduled = false;
+      if (mounted) unawaited(autoControl());
+    });
+  }
+
+  Future<void> autoControl() async {
+    // Only the page on top acts: never under a dialog, a pushed page or
+    // while an operation runs.
+    if (_choosing || busy || !_onTop) return;
+    final step = store.autoControlStep(instanceId);
+    if (step == null) return;
+    _choosing = true;
+    try {
+      if (step == AutoControl.prompt) {
+        await _confirmTakeover();
+      } else {
+        await runControl(() => store.acquire(instanceId));
+      }
+    } finally {
+      _choosing = false;
+    }
+  }
+
+  /// The control button: releases when in control, otherwise asks for it.
+  Future<void> toggleControl() async {
+    if (store.canWrite(instanceId)) {
+      store.setWatchOnly(instanceId, true);
+      await runControl(() => store.release(instanceId));
+      return;
+    }
+    await takeControl();
+  }
+
+  /// Explicitly asks for control, confirming before pushing another device
+  /// off. True once control is ours.
+  Future<bool> takeControl() async {
+    if (_choosing) return false;
+    _choosing = true;
+    try {
+      store.setWatchOnly(instanceId, false);
+      if (otherHolder(controlled) != null) return await _confirmTakeover();
+      await runControl(() => store.acquire(instanceId));
+      return store.canWrite(instanceId);
+    } finally {
+      _choosing = false;
+    }
+  }
+
+  Future<bool> _confirmTakeover() async {
+    final name = await store.controllerName(otherHolder(controlled));
+    if (!mounted) return false;
+    final confirmed = await takeoverDialog(context, name);
+    if (!mounted) return false;
+    if (!confirmed) {
+      store.setWatchOnly(instanceId, true);
+      return false;
+    }
+    await runControl(() => store.acquire(instanceId, takeover: true));
+    return store.canWrite(instanceId);
+  }
+
+  /// Stops waiting for the running operation. Control is dropped until the
+  /// person asks for it again.
+  void abandonOperation() {
+    store.stopWaiting(instanceId);
+    store.abandonControl(instanceId);
+    store.setWatchOnly(instanceId, true);
+  }
+
+  /// The "… took over control. Watching only." notice until dismissed.
+  Widget controlNotice(EdgeInsetsGeometry padding) {
+    final notice = store.controlNotices[instanceId];
+    return Reveal(
+      padding: padding,
+      child: notice == null
+          ? null
+          : Notice(
+              notice,
+              onDismiss: () => store.dismissControlNotice(instanceId),
+            ),
+    );
+  }
+}
+
 class InstancePage extends StatefulWidget {
   const InstancePage({required this.store, required this.id, super.key});
   final RemoteStore store;
@@ -652,12 +800,18 @@ class InstancePage extends StatefulWidget {
   State<InstancePage> createState() => _InstancePageState();
 }
 
-class _InstancePageState extends State<InstancePage> {
+class _InstancePageState extends State<InstancePage>
+    with InstanceControl<InstancePage> {
+  @override
   bool busy = false;
   int operationEpoch = 0;
   int controlEpoch = -1;
   String? error;
   List<JsonMap> sessions = [];
+  @override
+  RemoteStore get store => widget.store;
+  @override
+  String get instanceId => widget.id;
   @override
   void initState() {
     super.initState();
@@ -675,7 +829,7 @@ class _InstancePageState extends State<InstancePage> {
     if (mounted) setState(() {});
   }
 
-  /// True while the running operation is an acquire or release.
+  @override
   bool get controlling => busy && controlEpoch == operationEpoch;
 
   Future<void> run(Future<void> Function() operation) async {
@@ -696,10 +850,15 @@ class _InstancePageState extends State<InstancePage> {
     }
   }
 
+  @override
+  Future<void> runControl(Future<void> Function() operation) {
+    controlEpoch = operationEpoch + 1;
+    return run(operation);
+  }
+
   void stopWaiting() {
     operationEpoch++;
-    widget.store.stopWaiting(widget.id);
-    widget.store.abandonControl(widget.id);
+    abandonOperation();
     setState(() {
       busy = false;
       error =
@@ -716,40 +875,42 @@ class _InstancePageState extends State<InstancePage> {
       setState(() => sessions = (raw is List ? raw : []).map(object).toList());
     }
   });
-  Future<void> control() async {
-    final instance = widget.store.instance(widget.id);
-    if (instance == null) return;
-    if (widget.store.canWrite(instance.id)) {
-      controlEpoch = operationEpoch + 1;
-      await run(() => widget.store.release(widget.id));
-      return;
-    }
-    final takeover = instance.lease != null && !instance.lease!.expired;
-    if (takeover &&
-        !await confirmDialog(
-          context,
-          'Take over this instance?',
-          'The current writer will lose control. Their already-running operation may continue; use Cancel separately if needed.',
-          'Take over',
-        )) {
-      return;
-    }
-    controlEpoch = operationEpoch + 1;
-    await run(() => widget.store.acquire(widget.id, takeover: takeover));
-  }
 
+  /// New session needs control: a free instance is acquired first, another
+  /// device's control is taken over after asking, then the folder is chosen.
   Future<void> createSession() async {
-    final confirmed = await confirmDialog(
+    if (!store.canWrite(widget.id) && !await takeControl()) return;
+    if (!mounted) return;
+    // Plugins that predate the folder picker create in their default folder.
+    final browsable =
+        store.instance(widget.id)?.capabilities.contains('workspace.browse') ==
+        true;
+    String? cwd;
+    if (browsable) {
+      cwd = await showNewSessionDialog(
+        context,
+        store: store,
+        instanceId: widget.id,
+      );
+      if (cwd == null) return;
+    } else if (!await confirmDialog(
       context,
       'New session?',
       'Create a session in the connector’s configured default workspace.',
       'Create session',
-    );
-    if (!confirmed || !mounted) return;
+    )) {
+      return;
+    }
+    if (!mounted) return;
     await run(() async {
-      await widget.store.command(widget.id, 'session.create', {
-        'sessionId': newId(),
-      });
+      try {
+        await widget.store.command(widget.id, 'session.create', {
+          'sessionId': newId(),
+          'cwd': ?cwd,
+        });
+      } on ApiException catch (e) {
+        throw ApiException(e.code, workspaceErrorText(e), e.statusCode);
+      }
     });
     if (error == null) await load();
   }
@@ -758,6 +919,7 @@ class _InstancePageState extends State<InstancePage> {
   Widget build(BuildContext context) {
     final store = widget.store;
     final text = Theme.of(context).textTheme;
+    watchControl(context);
     final instance = store.instance(widget.id);
     if (instance == null) {
       return Scaffold(
@@ -768,14 +930,8 @@ class _InstancePageState extends State<InstancePage> {
         ),
       );
     }
-    final owned = store.canWrite(instance.id);
-    final controlState = instance.lease?.pending == true || controlling
-        ? ControlState.confirming
-        : owned
-        ? ControlState.owned
-        : instance.lease != null && !instance.lease!.expired
-        ? ControlState.takeover
-        : ControlState.available;
+    final state = controlState;
+    final canStartSession = controlReady && state != ControlState.confirming;
     return Scaffold(
       appBar: AppBar(
         actions: [
@@ -833,19 +989,22 @@ class _InstancePageState extends State<InstancePage> {
                               : 'Last seen: ${shortTime(instance.lastSeenAt!)}',
                           style: text.bodySmall,
                         ),
-                        const SizedBox(height: Space.l),
-                        ControlButton(
-                          state: controlState,
-                          onPressed:
-                              busy ||
-                                  !instance.online ||
-                                  store.connection != 'Live' ||
-                                  instance.lease?.pending == true
-                              ? null
-                              : control,
+                        Reveal(
+                          padding: const EdgeInsets.only(top: Space.l),
+                          child: showsControl
+                              ? ControlButton(
+                                  state: state,
+                                  onPressed: controlReady
+                                      ? toggleControl
+                                      : null,
+                                )
+                              : null,
                         ),
                       ],
                     ),
+                  ),
+                  controlNotice(
+                    const EdgeInsets.fromLTRB(Space.l, Space.l, Space.l, 0),
                   ),
                   Reveal(
                     padding: const EdgeInsets.fromLTRB(
@@ -872,9 +1031,10 @@ class _InstancePageState extends State<InstancePage> {
                         Expanded(
                           child: Text('Sessions', style: text.titleLarge),
                         ),
-                        TextButton(
-                          onPressed: owned && !busy ? createSession : null,
-                          child: const Text('New session'),
+                        TextButton.icon(
+                          onPressed: canStartSession ? createSession : null,
+                          icon: const Icon(Icons.add, size: 20),
+                          label: const Text('New session'),
                         ),
                       ],
                     ),
@@ -883,11 +1043,24 @@ class _InstancePageState extends State<InstancePage> {
                   if (sessions.isEmpty && !busy)
                     Padding(
                       padding: pageInset,
-                      child: Text(
-                        'No sessions',
-                        style: text.bodyMedium?.copyWith(
-                          color: HarnessColors.of(context).secondary,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'No sessions',
+                            style: text.bodyMedium?.copyWith(
+                              color: HarnessColors.of(context).secondary,
+                            ),
+                          ),
+                          if (instance.online) ...[
+                            const SizedBox(height: Space.l),
+                            FilledButton.icon(
+                              onPressed: canStartSession ? createSession : null,
+                              icon: const Icon(Icons.add, size: 20),
+                              label: const Text('New session'),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   for (final session in sessions) sessionRow(session),
@@ -941,10 +1114,12 @@ class SessionPage extends StatefulWidget {
   State<SessionPage> createState() => _SessionPageState();
 }
 
-class _SessionPageState extends State<SessionPage> {
+class _SessionPageState extends State<SessionPage>
+    with InstanceControl<SessionPage> {
   final prompt = TextEditingController();
   final transcriptScroll = ScrollController();
   bool autoFollow = true;
+  @override
   bool busy = false;
   String? error;
   Object? snapshot;
@@ -961,6 +1136,10 @@ class _SessionPageState extends State<SessionPage> {
   int controlOperation = -1;
   int statusSeqAtRead = -1;
   String get draftKey => '${widget.instanceId}:${widget.sessionId}';
+  @override
+  RemoteStore get store => widget.store;
+  @override
+  String get instanceId => widget.instanceId;
   void saveDraft() {
     if (!widget.store.signedIn) return;
     widget.store.drafts[draftKey] = {
@@ -1034,7 +1213,7 @@ class _SessionPageState extends State<SessionPage> {
 
   bool get owned => widget.store.canWrite(widget.instanceId);
 
-  /// True while the running operation is an acquire or release.
+  @override
   bool get controlling => busy && controlOperation == operation;
 
   RelayEvent? get latestStatus {
@@ -1076,10 +1255,15 @@ class _SessionPageState extends State<SessionPage> {
     }
   }
 
+  @override
+  Future<void> runControl(Future<void> Function() work) {
+    controlOperation = operation + 1;
+    return run(work);
+  }
+
   void stopWaiting() {
     operation++;
-    widget.store.stopWaiting(widget.instanceId);
-    widget.store.abandonControl(widget.instanceId);
+    abandonOperation();
     setState(() {
       busy = false;
       error =
@@ -1115,33 +1299,6 @@ class _SessionPageState extends State<SessionPage> {
       builder: (_) => CommandHistoryPage(store: widget.store),
     ),
   );
-
-  Future<void> control() async {
-    final instance = widget.store.instance(widget.instanceId);
-    if (instance == null) return;
-    if (owned) {
-      controlOperation = operation + 1;
-      await run(() => widget.store.release(widget.instanceId));
-      return;
-    }
-    final takeover =
-        instance.lease != null &&
-        !instance.lease!.expired &&
-        instance.lease!.controllerId != widget.store.controllerId;
-    if (takeover &&
-        !await confirmDialog(
-          context,
-          'Take over this instance?',
-          'The current writer loses control. A running operation may continue.',
-          'Take over',
-        )) {
-      return;
-    }
-    controlOperation = operation + 1;
-    await run(
-      () => widget.store.acquire(widget.instanceId, takeover: takeover),
-    );
-  }
 
   Future<Object?> command(String action, JsonMap args) => widget.store.command(
     widget.instanceId,
@@ -1984,17 +2141,7 @@ class _SessionPageState extends State<SessionPage> {
                   object(e.payload)['sessionId'] == widget.sessionId),
         )
         .toList();
-    final takeover =
-        instance?.lease != null &&
-        !instance!.lease!.expired &&
-        instance.lease!.controllerId != store.controllerId;
-    final controlState = instance?.lease?.pending == true || controlling
-        ? ControlState.confirming
-        : owned
-        ? ControlState.owned
-        : takeover
-        ? ControlState.takeover
-        : ControlState.available;
+    watchControl(context);
     return Scaffold(
       appBar: AppBar(
         leading: const BackButton(),
@@ -2082,6 +2229,9 @@ class _SessionPageState extends State<SessionPage> {
                       onDismiss: () => setState(() => error = null),
                     ),
             ),
+            controlNotice(
+              const EdgeInsets.fromLTRB(Space.l, Space.s, Space.l, 0),
+            ),
             Padding(
               padding: const EdgeInsets.fromLTRB(Space.l, Space.s, Space.l, 0),
               child: Align(
@@ -2135,14 +2285,13 @@ class _SessionPageState extends State<SessionPage> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      ControlButton(
-                        state: controlState,
-                        onPressed:
-                            busy ||
-                                instance?.online != true ||
-                                store.connection != 'Live'
-                            ? null
-                            : control,
+                      Reveal(
+                        child: showsControl
+                            ? ControlButton(
+                                state: controlState,
+                                onPressed: controlReady ? toggleControl : null,
+                              )
+                            : null,
                       ),
                       Reveal(
                         padding: const EdgeInsets.only(top: Space.s),

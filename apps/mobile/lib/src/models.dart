@@ -79,6 +79,8 @@ class Instance {
     _ => 'Offline',
   };
   final Lease? lease;
+
+  /// Actions the connected plugin version supports, e.g. `workspace.browse`.
   final List<String> capabilities;
   bool heldBy(String? controller) =>
       lease != null && !lease!.expired && lease!.controllerId == controller;
@@ -128,6 +130,8 @@ const readActions = {
   'settings.describe',
   'capabilities',
   'attachment.read',
+  'workspace.list',
+  'workspace.browse',
 };
 
 /// Bind the review display to the same session, call ID, and immutable host event.

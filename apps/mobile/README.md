@@ -23,8 +23,8 @@ The relay disables public registration by default. Enable registration deliberat
 - Native adaptation of the reviewed DSH prototype: upstream-grounded neutral light/dark surfaces, business-blue actions, navigation drawer, restrained conversation rows and rounded composer
 - Multiple instances per account, one-time connector-token display, authoritative connecting/online/stale/offline status and last-seen refresh
 - Passive session list/read/projections, cursor-based older-history paging, and a real event stream
-- Explicit control acquisition/takeover/release, 10-second foreground renewal of a current 30-second lease, acknowledgement-aware and epoch-fenced writes; local renewal/write admissions are serialized
-- New UUID-addressed sessions, queue/steer prompts, cancellation and explicit saved-session activation
+- Connecting takes control, as in remote-desktop clients: a free instance is acquired when its page opens, a lease this device still holds is resumed after a reconnect, and another device's control is only taken after confirming. "View only", releasing or being taken over leaves the instance watch-only for the rest of the app session. 10-second foreground renewal of a current 30-second lease, acknowledgement-aware and epoch-fenced writes; local renewal/write admissions are serialized
+- New UUID-addressed sessions in a folder chosen from the Host's allowed folders (plugins without `workspace.browse` use their default folder), queue/steer prompts, cancellation and explicit saved-session activation
 - Pending inbox editing, next-step prioritization, and removal through real DSH queue actions
 - Rendered user/assistant/tool conversation cards, accumulating live text, expandable complete events and raw metadata
 - Native file picker, bounded upload, attachment receipts included in prompts

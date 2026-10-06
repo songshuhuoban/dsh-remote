@@ -216,6 +216,13 @@ void main() {
       );
       final originalController = store.controllerId;
       await tap(find.text('Actual upstream source'));
+      // The fixture's own controller holds the lease, so connecting asks
+      // before pushing it off. Watching only keeps this pass read-only.
+      await until(
+        () => find.textContaining('is in control').evaluate().isNotEmpty,
+        'takeover prompt on connect',
+      );
+      await tap(find.text('View only'));
       await until(
         () => find.text('remote-e2e-b').evaluate().isNotEmpty,
         'passive session list',
@@ -245,8 +252,14 @@ void main() {
       await tap(find.byTooltip('Load older history'));
       await latestDone('session.page', pages);
       await tap(find.byTooltip('Back'));
-      await tap(find.text('Take over control'));
+      // Watching only means no further prompt; taking over is explicit.
       await tap(find.text('Take over'));
+      await tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Take over'),
+        ),
+      );
       await until(
         () => store
             .instance(fixture['instanceId'] as String)!
@@ -259,10 +272,16 @@ void main() {
       );
       final createdBefore = count('session.create');
       await tap(find.text('New session'));
+      // "Create session" enables once the Host lists its allowed workspace,
+      // which is preselected.
       await tap(find.text('Create session'));
       await latestDone('session.create', createdBefore);
       final created = store.commands.values.lastWhere(
         (c) => c.json['action'] == 'session.create',
+      );
+      expect(
+        object(object(created.json['submittedBody'])['args'])['cwd'],
+        isA<String>(),
       );
       final session = object(created.result)['sessionId'] as String;
       await until(

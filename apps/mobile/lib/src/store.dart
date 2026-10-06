@@ -11,6 +11,14 @@ import 'api.dart';
 import 'credentials.dart';
 import 'models.dart';
 
+/// What connecting does for the instance a page shows, as in remote-desktop
+/// clients: a free instance is controlled at once ([acquire]), a lease this
+/// controller still holds after a reconnect is renewed ([resume]), and
+/// another device's control is only taken after asking ([prompt]).
+enum AutoControl { acquire, resume, prompt }
+
+const anotherDevice = 'Another device';
+
 class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
   RemoteStore({
     this.credentials = const SecureCredentialStore(),
@@ -157,6 +165,147 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
     _notify();
   }
 
+  /// Instances this app process only watches: control was declined,
+  /// released, abandoned or taken by another device. In memory only.
+  final Set<String> _watchOnly = {};
+
+  /// The last lease state (see [_leaseState]) each instance was handled in,
+  /// automatically or by an explicit choice.
+  final Map<String, String> _autoControlled = {};
+
+  /// The takeover of each instance already announced (holder and epoch).
+  final Map<String, String> _takenOver = {};
+
+  /// "Work laptop took over control. Watching only." per instance, until it is
+  /// dismissed or control comes back.
+  final Map<String, String> controlNotices = {};
+
+  /// Counts live event-stream connections; a reconnect starts automatic
+  /// control over.
+  int _liveGeneration = 0;
+
+  bool isWatchOnly(String id) => _watchOnly.contains(id);
+
+  /// Records an explicit choice to only watch [id] or to ask for control.
+  /// Either way the current lease state counts as handled, so no automatic
+  /// step follows the choice.
+  void setWatchOnly(String id, bool watching) {
+    if (watching) {
+      _watchOnly.add(id);
+    } else {
+      _watchOnly.remove(id);
+    }
+    _autoControlled[id] = _leaseState(id);
+    _notify();
+  }
+
+  void dismissControlNotice(String id) {
+    if (controlNotices.remove(id) != null) _notify();
+  }
+
+  String _leaseState(String id) {
+    final lease = instance(id)?.lease;
+    final active = lease != null && !lease.expired;
+    return '$id:${active ? lease.controllerId : ''}:'
+        '${active ? lease.epoch : 0}:$_liveGeneration';
+  }
+
+  /// The automatic control step for [id] while a page shows it, or null.
+  ///
+  /// Only in the foreground, on a live stream, for an online instance that is
+  /// not watch-only and not already controlled here. Each lease state
+  /// (instance, holder, epoch) of a live connection yields at most one step,
+  /// so a failure cannot loop; a reconnect starts over.
+  AutoControl? autoControlStep(String id) {
+    final current = instance(id);
+    if (current == null ||
+        !_foreground ||
+        connection != 'Live' ||
+        journalError != null ||
+        !current.online ||
+        _watchOnly.contains(id) ||
+        canWrite(id)) {
+      return null;
+    }
+    final lease = current.lease;
+    final active = lease != null && !lease.expired;
+    final mine = active && lease.controllerId == controllerId;
+    // This controller's acquisition is still waiting for the Host's fence.
+    if (mine && lease.pending) return null;
+    final state = _leaseState(id);
+    if (_autoControlled[id] == state) return null;
+    _autoControlled[id] = state;
+    return mine
+        ? AutoControl.resume
+        : active
+        ? AutoControl.prompt
+        : AutoControl.acquire;
+  }
+
+  String? _knownName(String? id) {
+    for (final entry in controllers) {
+      if (entry['id'] == id) {
+        final name = entry['name']?.toString().trim() ?? '';
+        return name.isEmpty ? null : name;
+      }
+    }
+    return null;
+  }
+
+  Future<void> refreshControllers() async {
+    final client = api;
+    if (client == null) return;
+    try {
+      final result = await client.request('GET', 'api/controllers');
+      if (client != api) return;
+      controllers = (result['controllers'] as List? ?? []).map(object).toList();
+      _notify();
+    } catch (_) {
+      // The name falls back to "Another device".
+    }
+  }
+
+  /// The name of controller [id]. A device that signed in after the list
+  /// loaded is looked up again before falling back to "Another device".
+  Future<String> controllerName(String? id) async {
+    if (id == null) return anotherDevice;
+    if (_knownName(id) == null) await refreshControllers();
+    return _knownName(id) ?? anotherDevice;
+  }
+
+  /// Replaces the instance list and notices control this controller held
+  /// passing to another device.
+  void _setInstances(List<Instance> next) {
+    final before = {for (final entry in instances) entry.id: entry};
+    instances = next;
+    final me = controllerId;
+    if (me == null) return;
+    for (final current in next) {
+      final lease = current.lease;
+      if (before[current.id]?.heldBy(me) != true ||
+          lease == null ||
+          lease.expired ||
+          lease.controllerId == me) {
+        continue;
+      }
+      final takeover = '${lease.controllerId}:${lease.epoch}';
+      if (_takenOver[current.id] == takeover) continue;
+      _takenOver[current.id] = takeover;
+      // Never take it straight back: two devices would push each other off
+      // forever. Watching continues until the person asks for control.
+      _watchOnly.add(current.id);
+      unawaited(_announceTakeover(current.id, lease.controllerId));
+    }
+  }
+
+  Future<void> _announceTakeover(String id, String holder) async {
+    final client = api;
+    final name = await controllerName(holder);
+    if (client != api || instance(id)?.lease?.controllerId != holder) return;
+    controlNotices[id] = '$name took over control. Watching only.';
+    _notify();
+  }
+
   String? error;
   String connection = 'Disconnected';
   bool busy = false;
@@ -230,6 +379,10 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
   Timer? _reconnect;
   Timer? _maintenance;
   bool get signedIn => api?.token != null && user != null;
+
+  /// Whether the app is in the foreground; nothing is renewed or acquired in
+  /// the background.
+  bool get foreground => _foreground;
   String? get controllerId => controller?['id']?.toString();
   String get server => api?.base.toString() ?? '';
   bool _notificationScheduled = false;
@@ -400,12 +553,15 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
         client.request('GET', 'api/controllers'),
       ]);
       if (generation != _generation) return;
-      instances = (results[0]['instances'] as List? ?? [])
-          .map((v) => Instance.fromJson(object(v)))
-          .toList();
+      // Controllers first, so a takeover noticed below is announced by name.
       controllers = (results[1]['controllers'] as List? ?? [])
           .map(object)
           .toList();
+      _setInstances(
+        (results[0]['instances'] as List? ?? [])
+            .map((v) => Instance.fromJson(object(v)))
+            .toList(),
+      );
       _reconcileControl();
       _ownedLeases.removeWhere(
         (id) => instance(id)?.heldBy(controllerId) != true,
@@ -489,6 +645,7 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
             current.controlledBy(controllerId)) {
           _suppressedLeases.remove(id);
           _ownedLeases.add(id);
+          controlNotices.remove(id);
           _notify();
         }
       });
@@ -511,10 +668,10 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
     );
     final value = Instance.fromJson(object(result['instance']));
     if (client == api) {
-      instances = [
+      _setInstances([
         for (final current in instances)
           if (current.id == id) value else current,
-      ];
+      ]);
       _reconcileControl();
       _notify();
     }
@@ -852,6 +1009,7 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
       }
       _socket = socket;
       _retries = 0;
+      _liveGeneration++;
       connection = 'Live';
       _notify();
       socket.listen(
@@ -860,9 +1018,11 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
           try {
             final json = object(jsonDecode(frame as String));
             if (json['type'] == 'snapshot') {
-              instances = (json['instances'] as List? ?? [])
-                  .map((v) => Instance.fromJson(object(v)))
-                  .toList();
+              _setInstances(
+                (json['instances'] as List? ?? [])
+                    .map((v) => Instance.fromJson(object(v)))
+                    .toList(),
+              );
               pendingApprovals.clear();
               streams.clear();
               for (final raw in (json['pendingApprovals'] as List? ?? [])) {
@@ -987,7 +1147,11 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
       _socket = null;
       connection = 'Paused';
       _dropWriteAuthority();
-      // Do not renew in background or reacquire automatically on resume.
+      // Never renew or acquire in the background. On resume the stream
+      // reconnects, and the page showing an instance then takes control again
+      // (see autoControlStep): it renews a lease that is still ours, or
+      // acquires a free one unless the instance is watch-only. Another
+      // device's control is only taken after asking.
       _notify();
     }
   }
@@ -1013,6 +1177,10 @@ class RemoteStore extends ChangeNotifier with WidgetsBindingObserver {
     _ownedLeases.clear();
     _suppressedLeases.clear();
     _controlEpochs.clear();
+    _watchOnly.clear();
+    _autoControlled.clear();
+    _takenOver.clear();
+    controlNotices.clear();
     _abandonedCommands.clear();
     repositories.clear();
     drafts.clear();
