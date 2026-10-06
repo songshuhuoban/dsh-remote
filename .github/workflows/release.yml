@@ -74,8 +74,7 @@ jobs:
           fi
           # Windows PowerShell 5.1 ends piped secrets with CRLF; all three values are
           # whitespace-free (base64 / URL-safe), so line endings and spaces are stripped.
-          clean() { printf '%s' "$1" | tr -d '
- '; }
+          clean() { printf '%s' "$1" | tr -d '\r\n '; }
           export DSH_ANDROID_KEYSTORE="$RUNNER_TEMP/release.p12"
           export DSH_ANDROID_KEYSTORE_PASSWORD="$(clean "$KEYSTORE_PASSWORD")"
           export DSH_ANDROID_KEY_ALIAS="$(clean "$KEY_ALIAS")"
