@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Clipboard } from 'lucide-react';
 import { isOnline, post, type Instance } from './api';
-import { Err, Modal, Spinner } from './ui';
+import { Actions, Err, Modal, Spinner } from './ui';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 export type Pairing = { code: string; expiresAt: number; pairingUrl: string };
 
@@ -51,19 +53,21 @@ export function CopyField({
     return () => clearTimeout(timer);
   }, [copied]);
   return (
-    <div className="copy-field">
-      <span>{label}</span>
-      <div className="pairing-link">
+    <div className="grid gap-1.5">
+      <span className="text-sm font-medium text-muted-foreground">{label}</span>
+      <div className="flex h-10 items-center gap-1 rounded-lg border-[0.8px] border-input bg-field pr-1 pl-3 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/60">
         <input
           readOnly
           aria-label={label}
           value={value}
           disabled={disabled}
+          className="min-w-0 flex-1 truncate bg-transparent font-mono text-sm text-foreground outline-none disabled:opacity-50"
           onFocus={(e) => e.currentTarget.select()}
         />
-        <button
+        <Button
           type="button"
-          className="icon-button"
+          variant="ghost"
+          size="icon-sm"
           aria-label={copied ? '已复制' : `复制${label}`}
           disabled={disabled}
           onClick={() => {
@@ -73,10 +77,13 @@ export function CopyField({
               .catch(() => setCopied(false));
           }}
         >
-          <span key={copied ? 'done' : 'copy'} className="swap">
+          <span
+            key={copied ? 'done' : 'copy'}
+            className={cn('swap flex', copied && 'text-success')}
+          >
             {copied ? <Check size={16} /> : <Clipboard size={16} />}
           </span>
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -109,27 +116,36 @@ export function PairingPanel({
     plugin = usePluginPackage();
   if (connected)
     return (
-      <p className="pairing-done swap" role="status">
-        <Check size={16} />
+      <p className="swap flex items-center gap-2 text-md font-medium text-success" role="status">
+        <Check size={18} />
         已连接
       </p>
     );
   return (
-    <div className="pairing">
-      <p>
+    <div className="grid gap-4">
+      <p className="text-base text-muted-foreground">
         {plugin
           ? '在 DSH 的插件页用插件地址添加 DSH Remote（已安装可跳过），再在其中粘贴配对链接。'
           : '在 DSH 的插件页打开 DSH Remote，粘贴此链接。'}
       </p>
       {plugin ? <CopyField label="插件地址" value={plugin.url} /> : null}
       <CopyField label="配对链接" value={pairing.pairingUrl} disabled={countdown.left === 0} />
-      <p className="pairing-meta" role="status">
-        <span key={countdown.left === 0 ? 'expired' : 'valid'} className="swap">
+      <p
+        className="-mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-caption"
+        role="status"
+      >
+        <span key={countdown.left === 0 ? 'expired' : 'valid'} className="swap tabular-nums">
           {countdown.left > 0 ? `${countdown.label} 后失效，仅可使用一次` : '已失效'}
         </span>
-        <button type="button" className="text-button" disabled={renewing} onClick={onRenew}>
+        <Button
+          type="button"
+          variant="link"
+          className="text-sm"
+          disabled={renewing}
+          onClick={onRenew}
+        >
           {renewing ? <Spinner /> : null}重新生成
-        </button>
+        </Button>
       </p>
     </div>
   );
@@ -153,25 +169,19 @@ export function PairInstance({ instance, onClose }: { instance: Instance; onClos
             onRenew={() => mutation.mutate()}
             renewing={mutation.isPending}
           />
-          <div className="modal-actions">
-            <button className="primary" onClick={onClose}>
-              完成
-            </button>
-          </div>
+          <Actions>
+            <Button onClick={onClose}>完成</Button>
+          </Actions>
         </>
       ) : (
-        <div className="modal-actions">
-          <button
-            className="primary"
-            onClick={() => mutation.mutate()}
-            disabled={mutation.isPending}
-          >
+        <Actions>
+          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
             {mutation.isPending ? <Spinner /> : null}生成配对链接
-          </button>
-          <button className="quiet" onClick={onClose} disabled={mutation.isPending}>
+          </Button>
+          <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>
             取消
-          </button>
-        </div>
+          </Button>
+        </Actions>
       )}
       <Err error={mutation.error} />
     </Modal>
@@ -182,17 +192,23 @@ export function PairInstance({ instance, onClose }: { instance: Instance; onClos
 export function PairingLanding() {
   const plugin = usePluginPackage();
   return (
-    <main className="pairing-landing">
-      <h1>DSH Remote 配对链接</h1>
-      <p>复制当前地址，粘贴到 DSH 插件页的 DSH Remote 中。链接只能使用一次。</p>
-      {plugin ? (
-        <div className="pairing-landing-plugin">
-          <CopyField label="还没装插件？在 DSH 插件页添加此地址" value={plugin.url} />
+    <main className="flex min-h-dvh items-center justify-center bg-background px-6 py-12">
+      <div className="grid w-full max-w-[460px] gap-5">
+        <div className="grid gap-2">
+          <h1 className="text-2xl font-medium">DSH Remote 配对链接</h1>
+          <p className="text-base text-muted-foreground">
+            复制当前地址，粘贴到 DSH 插件页的 DSH Remote 中。链接只能使用一次。
+          </p>
         </div>
-      ) : null}
-      <a className="text-button" href="/">
-        打开控制台
-      </a>
+        {plugin ? (
+          <CopyField label="还没装插件？在 DSH 插件页添加此地址" value={plugin.url} />
+        ) : null}
+        <div>
+          <Button asChild variant="outline">
+            <a href="/">打开控制台</a>
+          </Button>
+        </div>
+      </div>
     </main>
   );
 }

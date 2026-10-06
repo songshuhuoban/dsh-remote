@@ -43,7 +43,17 @@ import {
   Square,
   Pencil,
   ChevronDown,
+  Clock,
+  GitHubMark,
+  User,
+  Warn,
+  Attach,
 } from './icons';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import {
   api,
   ApiError,
@@ -74,7 +84,7 @@ import {
   type SessionSummary,
 } from './session';
 import { useEvents, type PendingApproval, type LiveStream } from './use-events';
-import { Modal, Spinner, Err, Empty } from './ui';
+import { Actions, Empty, Err, Field, Modal, NativeSelect, Spinner } from './ui';
 import { ModelSettings } from './model-settings';
 import { RepositoryPanel } from './repository-panel';
 import { getReferences, contextPreview, repositoryIdsForPrompt } from './repositories';
@@ -88,7 +98,7 @@ import {
   type Pairing,
 } from './pairing';
 import { WorkspacePicker } from './workspace-picker';
-import './styles.css';
+import './index.css';
 const THEME_KEY = 'dsh.appearance';
 const NEW_INSTANCE = '__new_instance__';
 const queryClient = new QueryClient({
@@ -116,13 +126,15 @@ declare module '@tanstack/react-router' {
     router: typeof router;
   }
 }
-const Brand = () => (
-  <div className="brand" aria-label="DeepSeek Harness Remote">
-    <span className="brand-wordmark">
-      <span>deepseek</span>
-      <span>harness</span>
+/** DSH-style wordmark: the brand face plus a badge, like DSH's "deepseek [HARNESS]". */
+const Brand = ({ className }: { className?: string }) => (
+  <div className={cn('flex items-center gap-1.5 select-none', className)} aria-label="DSH Remote">
+    <span className="font-brand text-[19px] leading-none font-medium tracking-[-0.01em] text-foreground">
+      DSH
     </span>
-    <small className="brand-remote">remote</small>
+    <span className="rounded-[5px] bg-foreground px-1.5 py-[3px] font-brand text-[9px] leading-none font-medium tracking-[0.12em] text-background">
+      REMOTE
+    </span>
   </div>
 );
 function App() {
@@ -133,8 +145,8 @@ function SignedInApp() {
   const me = useQuery({ queryKey: ['me'], queryFn: () => api<Identity>('/api/me'), retry: false });
   if (me.isPending)
     return (
-      <main className="boot" aria-label="正在连接">
-        <Spinner />
+      <main className="grid min-h-dvh place-items-center text-caption" aria-label="正在连接">
+        <Spinner className="size-5" />
       </main>
     );
   if (!me.data)
@@ -143,7 +155,9 @@ function SignedInApp() {
     );
   return (
     <OperationsProvider key={me.data.user.id} accountId={me.data.user.id}>
-      <Console identity={me.data} />
+      <TooltipProvider delayDuration={300}>
+        <Console identity={me.data} />
+      </TooltipProvider>
     </OperationsProvider>
   );
 }
@@ -218,63 +232,66 @@ function Auth({ error }: { error: unknown }) {
     },
   });
   return (
-    <main className="auth-page">
+    <main className="flex min-h-dvh items-center justify-center bg-background px-6 py-12 max-sm:items-start max-sm:pt-16">
       <form
-        className="auth-form"
+        className="grid w-full max-w-[380px] gap-5"
         onSubmit={(e) => {
           e.preventDefault();
           mutation.mutate();
         }}
       >
-        <Brand />
-        <h1 key={register ? 'register' : 'login'} className="swap">
-          {register ? '创建账户' : '登录'}
-        </h1>
-        <label>
-          邮箱
-          <input
-            type="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-          />
-        </label>
-        <label>
-          密码
-          <input
-            type="password"
-            minLength={8}
-            autoComplete={register ? 'new-password' : 'current-password'}
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder={register ? '至少 8 个字符' : ''}
-          />
-        </label>
-        <label>
-          设备名称
-          <input
-            required
-            maxLength={80}
-            value={deviceName}
-            onChange={(e) => setDeviceName(e.target.value)}
-            autoComplete="off"
-          />
-        </label>
-        {register && registration === 'invite' && (
-          <label className="swap">
-            邀请码
-            <input
+        <Brand className="mb-6" />
+        <div className="grid gap-1.5">
+          <h1 key={register ? 'register' : 'login'} className="swap text-2xl font-medium">
+            {register ? '创建账户' : '登录'}
+          </h1>
+          <p className="text-base text-muted-foreground">
+            {register ? '注册后即可连接和控制你的 DSH 实例。' : '连接和控制你的 DSH 实例。'}
+          </p>
+        </div>
+        <div className="grid gap-4">
+          <Field label="邮箱">
+            <Input
+              type="email"
+              autoComplete="email"
               required
-              maxLength={200}
-              value={inviteCode}
-              onChange={(e) => setInviteCode(e.target.value)}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+            />
+          </Field>
+          <Field label="密码">
+            <Input
+              type="password"
+              minLength={8}
+              autoComplete={register ? 'new-password' : 'current-password'}
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={register ? '至少 8 个字符' : ''}
+            />
+          </Field>
+          <Field label="设备名称">
+            <Input
+              required
+              maxLength={80}
+              value={deviceName}
+              onChange={(e) => setDeviceName(e.target.value)}
               autoComplete="off"
             />
-          </label>
-        )}
+          </Field>
+          {register && registration === 'invite' && (
+            <Field label="邀请码" className="swap">
+              <Input
+                required
+                maxLength={200}
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                autoComplete="off"
+              />
+            </Field>
+          )}
+        </div>
         <Err
           error={
             mutation.error ||
@@ -283,24 +300,28 @@ function Auth({ error }: { error: unknown }) {
             error
           }
         />
-        <div className="actions">
-          <button className="primary" disabled={mutation.isPending}>
+        <div className="grid gap-2.5">
+          <Button size="lg" disabled={mutation.isPending}>
             {mutation.isPending ? <Spinner /> : null}
             {register ? '创建账户' : '登录'}
-          </button>
+          </Button>
           {health.data?.githubSignIn && !mutation.isPending ? (
-            <button
+            <Button
               type="button"
+              size="lg"
+              variant="outline"
               disabled={github.isPending || github.isSuccess}
               onClick={() => github.mutate()}
             >
-              {github.isPending || github.isSuccess ? <Spinner /> : null}
+              {github.isPending || github.isSuccess ? <Spinner /> : <GitHubMark />}
               使用 GitHub 继续
-            </button>
+            </Button>
           ) : null}
+        </div>
+        <div className="flex items-center gap-1 text-base text-muted-foreground">
           {mutation.isPending ? (
-            <button
-              className="text-button"
+            <Button
+              variant="link"
               type="button"
               onClick={() => {
                 authAttempt.current += 1;
@@ -309,30 +330,37 @@ function Auth({ error }: { error: unknown }) {
               }}
             >
               停止等待
-            </button>
+            </Button>
           ) : registration !== 'closed' || register ? (
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => {
-                setRegister(!register);
-                mutation.reset();
-              }}
-            >
-              {register ? '已有账户，登录' : '创建账户'}
-            </button>
+            <>
+              <span>{register ? '已有账户？' : '还没有账户？'}</span>
+              <Button
+                variant="link"
+                type="button"
+                onClick={() => {
+                  setRegister(!register);
+                  mutation.reset();
+                }}
+              >
+                {register ? '已有账户，登录' : '创建账户'}
+              </Button>
+            </>
           ) : null}
         </div>
         {authNotice && (
-          <div className="notice swap" role="status">
+          <div
+            className="swap flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-accent px-3 py-2 text-sm text-muted-foreground"
+            role="status"
+          >
             {authNotice}
-            <button
+            <Button
+              variant="link"
               type="button"
-              className="text-button"
+              className="text-sm"
               onClick={() => void client.invalidateQueries({ queryKey: ['me'] })}
             >
               查询登录状态
-            </button>
+            </Button>
           </div>
         )}
       </form>
@@ -690,23 +718,43 @@ function Console({ identity }: { identity: Identity }) {
     lease?.epoch,
     lease?.expiresAt,
   ]);
+  const sidebarRow =
+    'flex h-9 w-full items-center gap-2.5 rounded-lg px-2 text-left text-base text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-45';
   return (
-    <div className="shell" data-stream={eventStream.state}>
-      <aside className={`sidebar ${mobileMenu ? 'open' : ''}`}>
-        <div className="sidebar-brand">
+    <div className="shell flex h-dvh overflow-hidden bg-background" data-stream={eventStream.state}>
+      <aside
+        className={cn(
+          'sidebar flex w-[280px] shrink-0 flex-col gap-1 border-r-[0.8px] border-sidebar-border bg-sidebar px-3 pt-4 pb-3',
+          'max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-40 max-md:w-[min(300px,86vw)] max-md:shadow-panel max-md:transition-transform max-md:duration-200 max-md:ease-ds',
+          mobileMenu ? 'open max-md:translate-x-0' : 'max-md:-translate-x-full max-md:invisible',
+        )}
+      >
+        <div className="mb-3 flex h-8 items-center justify-between px-2">
           <Brand />
-          <button
-            className="icon-button mobile-only"
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="md:hidden"
             onClick={() => setMobileMenu(false)}
             aria-label="关闭导航"
           >
-            <X size={18} />
-          </button>
+            <X size={16} />
+          </Button>
         </div>
-        <label className="instance-picker">
-          <span className={`status-dot ${instance ? instanceStatus(instance) : ''}`} />
+        <label className="relative mb-1 flex h-10 items-center rounded-lg border-[0.8px] border-border bg-outline-fill transition-colors focus-within:ring-[3px] focus-within:ring-ring hover:bg-accent">
+          <span
+            className={cn(
+              'pointer-events-none absolute left-3 size-2 rounded-full',
+              instance && instanceStatus(instance) === 'online'
+                ? 'bg-success'
+                : instance && instanceStatus(instance) !== 'offline'
+                  ? 'bg-warning'
+                  : 'bg-caption',
+            )}
+          />
           <select
             aria-label="选择实例"
+            className="h-full w-full cursor-pointer appearance-none truncate bg-transparent pr-8 pl-8 text-base font-medium text-foreground outline-none"
             value={id ?? ''}
             onChange={(e) =>
               e.target.value === NEW_INSTANCE
@@ -724,115 +772,159 @@ function Console({ identity }: { identity: Identity }) {
             ))}
             <option value={NEW_INSTANCE}>＋ 连接新实例</option>
           </select>
-          <ChevronDown size={15} />
+          <ChevronDown size={14} className="pointer-events-none absolute right-3 text-caption" />
         </label>
+        <Button
+          variant="outline"
+          className="h-[38px] w-full"
+          disabled={!online || !streamLive || leaseMutation.isPending}
+          onClick={startSession}
+        >
+          <Plus size={16} />
+          新建会话
+        </Button>
         <button
-          className={`sidebar-link ${tab === 'repositories' ? 'selected' : ''}`}
+          className={cn(sidebarRow, 'mt-2', tab === 'repositories' && 'bg-accent-active')}
           onClick={() => {
             setTab('repositories');
             setMobileMenu(false);
           }}
         >
+          <GitHubMark size={16} className="text-muted-foreground" />
           GitHub 仓库
         </button>
-        <div className="section-label">
-          <span>会话</span>
-        </div>
-        <button
-          className="sidebar-link new-session"
-          disabled={!online || !streamLive || leaseMutation.isPending}
-          onClick={startSession}
-        >
-          <Plus size={15} />
-          新建会话
-        </button>
-        <nav className="session-list" aria-label="会话列表">
+        <div className="mt-4 mb-1 px-2 text-base text-caption">会话</div>
+        <nav className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1" aria-label="会话列表">
           {sessions.isPending && online ? (
-            <div className="subtle-loading">
+            <div className="px-2 py-2 text-caption">
               <Spinner />
             </div>
           ) : sessions.error ? (
             <Err error={sessions.error} />
           ) : sessions.data?.length ? (
-            sessions.data.map((s) => (
-              <button
-                key={s.sessionId}
-                className={`session-link ${sessionId === s.sessionId && tab !== 'repositories' ? 'selected' : ''}`}
-                onClick={() => selectSession(s.sessionId)}
-              >
-                <strong>{sessionLabel(s)}</strong>
-                <small>
-                  {s.running
-                    ? '运行中'
-                    : s.updatedAt
-                      ? new Date(s.updatedAt).toLocaleString('zh-CN', {
+            <div className="grid gap-0.5">
+              {sessions.data.map((s) => {
+                const active = sessionId === s.sessionId && tab !== 'repositories';
+                return (
+                  <button
+                    key={s.sessionId}
+                    className={cn(
+                      'group flex min-h-9 w-full items-center gap-2 rounded-lg px-2 py-[7px] text-left transition-colors hover:bg-accent',
+                      active && 'bg-accent-active',
+                    )}
+                    onClick={() => selectSession(s.sessionId)}
+                  >
+                    <strong className="min-w-0 flex-1 truncate text-base font-normal text-foreground">
+                      {sessionLabel(s)}
+                    </strong>
+                    <small
+                      className={cn(
+                        'shrink-0 text-xs',
+                        s.running ? 'flex items-center gap-1 text-success' : 'text-caption',
+                      )}
+                    >
+                      {s.running ? (
+                        <>
+                          <span className="size-1.5 animate-pulse rounded-full bg-success" />
+                          运行中
+                        </>
+                      ) : s.updatedAt ? (
+                        new Date(s.updatedAt).toLocaleString('zh-CN', {
                           month: '2-digit',
                           day: '2-digit',
                           hour: '2-digit',
                           minute: '2-digit',
                         })
-                      : ''}
-                </small>
-              </button>
-            ))
+                      ) : (
+                        ''
+                      )}
+                    </small>
+                  </button>
+                );
+              })}
+            </div>
           ) : (
-            <p className="sidebar-empty">{online ? '暂无会话' : '实例离线'}</p>
+            <p className="px-2 py-1 text-base text-caption">{online ? '暂无会话' : '实例离线'}</p>
           )}
         </nav>
         <button
-          className="account"
+          className="mt-1 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-accent"
           aria-label="账户与设置"
           onClick={() => {
             setModal('settings');
             setMobileMenu(false);
           }}
         >
-          <span className="avatar">{accountName[0]?.toUpperCase()}</span>
-          <span>
-            <strong>{accountName}</strong>
-            <small>{identity.controller.name}</small>
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-sm font-medium text-background">
+            {accountName[0]?.toUpperCase()}
           </span>
+          <span className="grid min-w-0 flex-1">
+            <strong className="truncate text-base font-medium">{accountName}</strong>
+            <small className="truncate text-xs text-caption">{identity.controller.name}</small>
+          </span>
+          <Settings2 size={16} className="text-caption" />
         </button>
       </aside>
       {mobileMenu && (
         <button
-          className="sidebar-scrim"
+          className="fixed inset-0 z-30 bg-overlay md:hidden"
           aria-label="关闭导航"
           onClick={() => setMobileMenu(false)}
         />
       )}
-      <main className="main">
-        <header className="topbar">
-          <button
-            className="icon-button mobile-only"
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-14 shrink-0 items-center gap-3 px-6 max-md:px-3">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="md:hidden"
             onClick={() => setMobileMenu(true)}
             aria-label="打开导航"
             aria-expanded={mobileMenu}
           >
-            <Menu size={20} />
-          </button>
+            <Menu size={18} />
+          </Button>
           {instance ? (
             <>
-              <h1 className="instance-title">{instance.name}</h1>
+              <h1 className="min-w-0 truncate text-md font-medium">{instance.name}</h1>
               <button
-                className={`status-button ${streamLive ? instanceStatus(instance) : 'connecting'}`}
+                className="flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 onClick={() => (streamLive ? setModal('status') : eventStream.retry())}
                 aria-label={streamLive ? `实例状态：${statusText}` : `${statusText}，点击立即重连`}
               >
-                <span className={`status-dot ${streamLive ? '' : 'pulse-warn'}`} />
-                <span key={statusKey} className="swap">
+                <span
+                  className={cn(
+                    'size-2 rounded-full',
+                    !streamLive
+                      ? 'animate-pulse bg-warning'
+                      : instanceStatus(instance) === 'online'
+                        ? 'bg-success'
+                        : instanceStatus(instance) === 'offline'
+                          ? 'bg-caption'
+                          : 'bg-warning',
+                  )}
+                />
+                <span key={statusKey} className="swap whitespace-nowrap">
                   {statusText}
                 </span>
               </button>
               {online && streamLive ? (
-                <div className="control">
+                <div className="ml-auto flex min-w-0 items-center gap-2">
                   {occupied && (
-                    <span className="control-note swap">
+                    <span className="swap truncate text-sm text-muted-foreground max-sm:hidden">
                       {controllerName(lease?.controllerId)} 控制中
                     </span>
                   )}
-                  <button
-                    className={`control-button ${controlState}`}
+                  <Button
+                    size="sm"
+                    variant={
+                      controlState === 'held'
+                        ? 'secondary'
+                        : controlState === 'acquire'
+                          ? 'default'
+                          : 'outline'
+                    }
+                    className={cn('group min-w-[84px]', controlState === 'held' && 'text-success')}
                     disabled={leaseMutation.isPending}
                     title={
                       holding
@@ -847,17 +939,17 @@ function Console({ identity }: { identity: Identity }) {
                     }}
                   >
                     {controlState === 'pending' ? (
-                      <span className="swap" key="pending">
+                      <span className="swap flex items-center gap-1.5" key="pending">
                         <Spinner />
                         确认中
                       </span>
                     ) : controlState === 'held' ? (
-                      <span className="swap held" key="held">
-                        <span className="held-label">
+                      <span className="swap flex items-center gap-1.5" key="held">
+                        <span className="flex items-center gap-1.5 group-hover:hidden">
                           <Check size={14} />
                           控制中
                         </span>
-                        <span className="release-label">释放</span>
+                        <span className="hidden text-foreground group-hover:inline">释放</span>
                       </span>
                     ) : controlState === 'occupied' ? (
                       <span className="swap" key="occupied">
@@ -868,25 +960,35 @@ function Console({ identity }: { identity: Identity }) {
                         开始控制
                       </span>
                     )}
-                  </button>
+                  </Button>
                 </div>
               ) : null}
             </>
           ) : null}
         </header>
         {notice && (
-          <div className="notice swap" role="status">
-            {notice}
-            <button className="icon-button" onClick={() => setNotice('')} aria-label="关闭提示">
-              <X size={15} />
-            </button>
+          <div className="px-6 max-md:px-3">
+            <div
+              className="swap mx-auto flex max-w-[760px] items-center gap-2 rounded-lg bg-accent py-2 pr-1.5 pl-3 text-sm text-foreground"
+              role="status"
+            >
+              <span className="min-w-0 flex-1">{notice}</span>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => setNotice('')}
+                aria-label="关闭提示"
+              >
+                <X size={14} />
+              </Button>
+            </div>
           </div>
         )}
-        <Err error={instances.error} />
+        <Err error={instances.error} className="mx-6 mt-2" />
         {instance ? (
           <>
             <RecoveryPanel instanceId={id} />
-            <section className="conversation-panel">
+            <section className="flex min-h-0 flex-1 flex-col">
               {tab === 'repositories' ? (
                 <RepositoryPanel
                   key={id ?? 'none'}
@@ -912,29 +1014,24 @@ function Console({ identity }: { identity: Identity }) {
                   notify={setNotice}
                 />
               ) : online ? (
-                <div className="empty-state swap">
-                  <h2>选择或新建会话</h2>
-                  <div className="actions">
-                    <button
-                      className="primary"
-                      disabled={!streamLive || leaseMutation.isPending}
-                      onClick={startSession}
-                    >
-                      <Plus size={16} />
-                      新建会话
-                    </button>
-                  </div>
-                </div>
+                <Landing
+                  icon={<Plus size={20} />}
+                  title="选择或新建会话"
+                  text="会话在这台 DSH 实例上运行，这里实时同步，可随时接手。"
+                >
+                  <Button disabled={!streamLive || leaseMutation.isPending} onClick={startSession}>
+                    <Plus size={16} />
+                    新建会话
+                  </Button>
+                </Landing>
               ) : (
-                <div className="empty-state swap">
-                  <h2>等待实例上线</h2>
-                  <p>在 DSH 的插件页安装 DSH Remote，再用配对链接连接这台实例。</p>
-                  <div className="actions">
-                    <button className="primary" onClick={() => setModal('pair')}>
-                      配对
-                    </button>
-                  </div>
-                </div>
+                <Landing
+                  icon={<Clock size={20} />}
+                  title="等待实例上线"
+                  text="在 DSH 的插件页安装 DSH Remote，再用配对链接连接这台实例。"
+                >
+                  <Button onClick={() => setModal('pair')}>配对</Button>
+                </Landing>
               )}
             </section>
           </>
@@ -946,27 +1043,24 @@ function Console({ identity }: { identity: Identity }) {
             onClose={() => setTab('conversation')}
           />
         ) : (
-          <div className="empty-state welcome swap">
-            <h1>{search.instance ? '未找到此实例' : '连接你的第一台 DSH'}</h1>
-            <p>
-              {search.instance
+          <Landing
+            icon={<Plus size={20} />}
+            title={search.instance ? '未找到此实例' : '连接你的第一台 DSH'}
+            text={
+              search.instance
                 ? '实例可能不存在，或当前账户没有访问权限。'
-                : '添加实例后，用配对链接把运行 DSH 的电脑连接进来。'}
-            </p>
-            <div className="actions">
-              <button className="primary" onClick={() => setModal('instance')}>
-                连接新实例
-              </button>
-            </div>
-          </div>
+                : '添加实例后，用配对链接把运行 DSH 的电脑连接进来。'
+            }
+            heading="h1"
+          >
+            <Button onClick={() => setModal('instance')}>连接新实例</Button>
+          </Landing>
         )}
       </main>
       {modal === 'settings' && (
         <Modal title="设置" onClose={() => setModal(null)} busy={logout.isPending}>
-          <label>
-            外观
-            <select
-              className="theme-picker"
+          <Field label="外观">
+            <NativeSelect
               aria-label="外观"
               value={theme}
               onChange={(e) => setTheme(e.target.value as typeof theme)}
@@ -974,66 +1068,64 @@ function Console({ identity }: { identity: Identity }) {
               <option value="system">跟随系统</option>
               <option value="light">浅色</option>
               <option value="dark">深色</option>
-            </select>
-          </label>
+            </NativeSelect>
+          </Field>
           <Err error={logout.error} />
-          <div className="modal-actions">
-            <button className="primary" onClick={() => setModal(null)}>
-              完成
-            </button>
-            <button className="quiet" onClick={() => setModal('devices')}>
+          <Actions>
+            <Button onClick={() => setModal(null)}>完成</Button>
+            <Button variant="outline" onClick={() => setModal('devices')}>
               控制设备
-            </button>
-            <button className="quiet" disabled={logout.isPending} onClick={() => logout.mutate()}>
+            </Button>
+            <Button variant="quiet" disabled={logout.isPending} onClick={() => logout.mutate()}>
               退出登录
-            </button>
-          </div>
+            </Button>
+          </Actions>
         </Modal>
       )}
       {modal === 'status' && instance && (
         <Modal title={instance.name} onClose={() => setModal(null)}>
-          <dl className="facts">
-            <dt>状态</dt>
+          <dl className="grid grid-cols-[96px_1fr] gap-x-4 gap-y-2.5 text-base">
+            <dt className="text-caption">状态</dt>
             <dd>{statusLabel(instance)}</dd>
-            <dt>中继延迟</dt>
+            <dt className="text-caption">中继延迟</dt>
             <dd>{latencyMs !== undefined ? `${latencyMs} ms` : '—'}</dd>
-            <dt>最近心跳</dt>
+            <dt className="text-caption">最近心跳</dt>
             <dd>{timeLabel(instance.lastSeenAt)}</dd>
-            <dt>连接于</dt>
+            <dt className="text-caption">连接于</dt>
             <dd>{timeLabel(instance.connectedAt)}</dd>
-            <dt>断开于</dt>
+            <dt className="text-caption">断开于</dt>
             <dd>{timeLabel(instance.disconnectedAt)}</dd>
-            <dt>控制设备</dt>
+            <dt className="text-caption">控制设备</dt>
             <dd>
               {leaseActive(lease) ? controllerName(lease?.controllerId) : '无'}
               {lease?.pending ? '（等待主机确认）' : ''}
             </dd>
-            <dt>实例 ID</dt>
-            <dd>
-              <code>{instance.id}</code>
+            <dt className="text-caption">实例 ID</dt>
+            <dd className="min-w-0 font-mono text-sm break-all text-muted-foreground">
+              {instance.id}
             </dd>
           </dl>
-          <details className="event-details">
-            <summary>事件 {events.length}</summary>
+          <details className="group rounded-lg bg-accent/60 px-3 py-2">
+            <summary className="cursor-pointer text-sm text-muted-foreground select-none">
+              事件 {events.length}
+            </summary>
             <EventLog events={events} />
           </details>
           <Err error={instances.error} />
-          <div className="modal-actions">
-            <button className="primary" onClick={() => setModal(null)}>
-              完成
-            </button>
-            <button className="quiet" onClick={() => setModal('pair')}>
+          <Actions>
+            <Button onClick={() => setModal(null)}>完成</Button>
+            <Button variant="outline" onClick={() => setModal('pair')}>
               重新配对
-            </button>
-            <button className="quiet" onClick={() => setModal('rotate')}>
+            </Button>
+            <Button variant="quiet" onClick={() => setModal('rotate')}>
               更换令牌
-            </button>
-          </div>
+            </Button>
+          </Actions>
         </Modal>
       )}
       {modal === 'instance' && (
         <CreateInstance onClose={() => setModal(null)} onCreated={switchInstance} />
-      )}{' '}
+      )}
       {modal === 'devices' && (
         <Devices
           controllers={controllers.data?.controllers ?? []}
@@ -1054,18 +1146,17 @@ function Console({ identity }: { identity: Identity }) {
           description="接管后对方会被挤下线，只能查看；正在运行的任务不会中断。"
           onClose={declineTakeover}
         >
-          <div className="modal-actions">
-            <button
-              className="primary"
+          <Actions>
+            <Button
               onClick={() => leaseMutation.mutate({ takeover: true })}
               disabled={leaseMutation.isPending}
             >
               {leaseMutation.isPending ? <Spinner /> : null}接管
-            </button>
-            <button className="quiet" onClick={declineTakeover}>
+            </Button>
+            <Button variant="outline" onClick={declineTakeover}>
               仅查看
-            </button>
-          </div>
+            </Button>
+          </Actions>
         </Modal>
       )}
       {modal === 'session' && id && (
@@ -1083,6 +1174,34 @@ function Console({ identity }: { identity: Identity }) {
           }}
         />
       )}
+    </div>
+  );
+}
+/** A calm placeholder for the main area: icon tile, title, one line, primary action. */
+function Landing({
+  icon,
+  title,
+  text,
+  children,
+  heading = 'h2',
+}: {
+  icon: ReactNode;
+  title: string;
+  text: string;
+  children?: ReactNode;
+  heading?: 'h1' | 'h2';
+}) {
+  const Heading = heading;
+  return (
+    <div className="swap flex flex-1 items-center justify-center px-6 pb-16">
+      <div className="grid w-full max-w-[440px] justify-items-start gap-3">
+        <div className="flex size-11 items-center justify-center rounded-2xl bg-accent text-muted-foreground">
+          {icon}
+        </div>
+        <Heading className="text-xl font-medium">{title}</Heading>
+        <p className="text-base text-muted-foreground">{text}</p>
+        {children ? <div className="mt-2 flex flex-wrap gap-2">{children}</div> : null}
+      </div>
     </div>
   );
 }
@@ -1121,54 +1240,96 @@ function Devices({
       description={
         target
           ? `${target.name} 将立即退出登录并失去控制权。${target.id === currentId ? '这是当前设备。' : ''}`
-          : undefined
+          : '登录过这个账户的设备。撤销后对方立即退出登录。'
       }
       onClose={onClose}
       busy={mutation.isPending}
     >
       {target ? (
-        <div className="modal-actions">
-          <button
-            className="primary"
+        <Actions>
+          <Button
+            variant="destructive"
             disabled={mutation.isPending}
             onClick={() => mutation.mutate(target)}
           >
             {mutation.isPending ? <Spinner /> : null}撤销
-          </button>
-          <button className="quiet" disabled={mutation.isPending} onClick={() => setTarget(null)}>
+          </Button>
+          <Button variant="outline" disabled={mutation.isPending} onClick={() => setTarget(null)}>
             取消
-          </button>
-        </div>
+          </Button>
+        </Actions>
       ) : (
-        <div className="device-list">
-          {controllers.map((c) => (
-            <div
-              key={c.id}
-              className={c.active === false || revoked.includes(c.id) ? 'inactive' : ''}
-            >
-              <span>
-                <strong>{c.name}</strong>
-                {c.id === currentId && <small>当前设备</small>}
-              </span>
-              {c.active === false || revoked.includes(c.id) ? (
-                <small className="swap">已失效</small>
-              ) : (
-                <button className="text-button" onClick={() => setTarget(c)}>
-                  撤销
-                </button>
-              )}
-            </div>
-          ))}
+        <div className="-mx-2 grid gap-0.5">
+          {controllers.map((c) => {
+            const inactive = c.active === false || revoked.includes(c.id);
+            return (
+              <div
+                key={c.id}
+                className={cn(
+                  'flex min-h-11 items-center gap-3 rounded-lg px-2 py-1.5',
+                  inactive && 'opacity-50',
+                )}
+              >
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent text-muted-foreground">
+                  <User size={15} />
+                </span>
+                <span className="grid min-w-0 flex-1">
+                  <strong className="truncate text-base font-medium">{c.name}</strong>
+                  {c.id === currentId && <small className="text-xs text-caption">当前设备</small>}
+                </span>
+                {inactive ? (
+                  <small className="swap text-sm text-caption">已失效</small>
+                ) : (
+                  <Button variant="quiet" size="sm" onClick={() => setTarget(c)}>
+                    撤销
+                  </Button>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
       <Err error={mutation.error || error} />
     </Modal>
   );
 }
+/** A read-only secret with a copy button that briefly turns into a check. */
+function SecretField({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  return (
+    <div className="grid gap-2">
+      <Field label={label}>
+        <Textarea readOnly rows={3} value={value} className="font-mono text-sm break-all" />
+      </Field>
+      <div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            navigator.clipboard
+              ?.writeText(value)
+              .then(() => setCopied(true))
+              .catch(() => setCopied(false));
+          }}
+        >
+          <span key={copied ? 'done' : 'copy'} className="swap flex">
+            {copied ? <Check size={15} /> : <Clipboard size={15} />}
+          </span>
+          复制令牌
+        </Button>
+      </div>
+    </div>
+  );
+}
 function RotateCredential({ instance, onClose }: { instance: Instance; onClose: () => void }) {
   const client = useQueryClient(),
-    [token, setToken] = useState(''),
-    [copied, setCopied] = useState(false);
+    [token, setToken] = useState('');
   const mutation = useMutation({
     mutationFn: () =>
       post<{ connectorToken: string }>(
@@ -1193,43 +1354,24 @@ function RotateCredential({ instance, onClose }: { instance: Instance; onClose: 
     >
       {token ? (
         <>
-          <label>
-            Connector 令牌
-            <textarea readOnly rows={3} value={token} />
-          </label>
-          <div className="modal-actions">
-            <button className="primary" onClick={onClose}>
-              完成
-            </button>
-            <button
-              className="quiet"
-              onClick={() => {
-                navigator.clipboard
-                  ?.writeText(token)
-                  .then(() => setCopied(true))
-                  .catch(() => setCopied(false));
-              }}
-            >
-              <span key={copied ? 'done' : 'copy'} className="swap">
-                {copied ? <Check size={16} /> : <Clipboard size={16} />}
-              </span>
-              复制令牌
-            </button>
-          </div>
+          <SecretField label="Connector 令牌" value={token} />
+          <Actions>
+            <Button onClick={onClose}>完成</Button>
+          </Actions>
         </>
       ) : (
-        <div className="modal-actions">
-          <button
-            className="primary"
+        <Actions>
+          <Button
+            variant="destructive"
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending}
           >
             {mutation.isPending ? <Spinner /> : null}更换
-          </button>
-          <button className="quiet" onClick={onClose} disabled={mutation.isPending}>
+          </Button>
+          <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>
             取消
-          </button>
-        </div>
+          </Button>
+        </Actions>
       )}
       <Err error={mutation.error} />
     </Modal>
@@ -1245,7 +1387,6 @@ function CreateInstance({
   const [name, setName] = useState(''),
     [created, setCreated] = useState<{ instance: Instance; connectorToken: string } | null>(null),
     [pairing, setPairing] = useState<Pairing | null>(null),
-    [copied, setCopied] = useState(false),
     client = useQueryClient();
   const instances = useQuery({
     queryKey: ['instances'],
@@ -1274,6 +1415,9 @@ function CreateInstance({
     <Modal
       busy={mutation.isPending}
       title={created ? `连接 ${created.instance.name}` : '连接新实例'}
+      description={
+        created ? undefined : '为运行 DSH 的一台电脑起个名字，下一步用配对链接把它连进来。'
+      }
       onClose={() => {
         if (created) onCreated(created.instance.id);
         onClose();
@@ -1289,59 +1433,43 @@ function CreateInstance({
               renewing={repair.isPending}
             />
           ) : (
-            <button
-              className="quiet wide"
-              onClick={() => repair.mutate()}
-              disabled={repair.isPending}
-            >
+            <Button variant="outline" onClick={() => repair.mutate()} disabled={repair.isPending}>
               {repair.isPending ? <Spinner /> : <RefreshCw size={16} />}生成配对链接
-            </button>
+            </Button>
           )}
           <Err error={repair.error} />
-          <details className="manual-token">
-            <summary>改用手动令牌</summary>
-            <p className="tiny">令牌只显示这一次，配对后会失效。不要分享或提交到 Git。</p>
-            <label>
-              Connector 令牌
-              <textarea readOnly rows={3} value={created.connectorToken} />
-            </label>
-            <button
-              className="quiet"
-              onClick={() => {
-                navigator.clipboard
-                  .writeText(created.connectorToken)
-                  .then(() => setCopied(true))
-                  .catch(() => setCopied(false));
-              }}
-            >
-              <span key={copied ? 'done' : 'copy'} className="swap">
-                {copied ? <Check size={16} /> : <Clipboard size={16} />}
-              </span>
-              复制令牌
-            </button>
+          <details className="group rounded-lg bg-accent/60 px-3 py-2.5">
+            <summary className="cursor-pointer text-sm text-muted-foreground select-none">
+              改用手动令牌
+            </summary>
+            <div className="mt-3 grid gap-3">
+              <p className="text-sm text-muted-foreground">
+                令牌只显示这一次，配对后会失效。不要分享或提交到 Git。
+              </p>
+              <SecretField label="Connector 令牌" value={created.connectorToken} />
+            </div>
           </details>
-          <div className="modal-actions">
-            <button
-              className="primary"
+          <Actions>
+            <Button
               onClick={() => {
                 onCreated(created.instance.id);
                 onClose();
               }}
             >
               进入实例
-            </button>
-          </div>
+            </Button>
+          </Actions>
         </>
       ) : (
         <form
+          className="grid gap-5"
           onSubmit={(e) => {
             e.preventDefault();
             mutation.mutate();
           }}
         >
-          <label>
-            实例名称
-            <input
+          <Field label="实例名称">
+            <Input
               autoFocus
               required
               maxLength={80}
@@ -1349,16 +1477,16 @@ function CreateInstance({
               onChange={(e) => setName(e.target.value)}
               placeholder="例如：开发工作站"
             />
-          </label>
+          </Field>
           <Err error={mutation.error} />
-          <div className="modal-actions">
-            <button className="primary" disabled={mutation.isPending}>
+          <Actions>
+            <Button disabled={mutation.isPending}>
               {mutation.isPending ? <Spinner /> : null}创建实例
-            </button>
-            <button className="quiet" type="button" onClick={onClose} disabled={mutation.isPending}>
+            </Button>
+            <Button variant="outline" type="button" onClick={onClose} disabled={mutation.isPending}>
               取消
-            </button>
-          </div>
+            </Button>
+          </Actions>
         </form>
       )}
     </Modal>
@@ -1424,8 +1552,9 @@ function CreateSession({
     },
   });
   return (
-    <Modal title="新建会话" onClose={onClose}>
+    <Modal title="新建会话" onClose={onClose} className="max-w-[520px]">
       <form
+        className="grid gap-5"
         onSubmit={(e) => {
           e.preventDefault();
           mutation.mutate();
@@ -1439,55 +1568,56 @@ function CreateSession({
             onChange={setPicked}
           />
         ) : (
-          <label>
-            工作目录
-            <input
+          <Field label="工作目录">
+            <Input
               autoFocus
               value={cwd}
               onChange={(e) => setCwd(e.target.value)}
               placeholder="默认：第一个允许的目录"
             />
-          </label>
+          </Field>
         )}
         <Err error={mutation.error} />
         <RecoveryPanel instanceId={instanceId} />
-        <div className="modal-actions">
-          <button
-            className="primary"
-            disabled={!lease || mutation.isPending || (browsable && !picked)}
-          >
+        <Actions>
+          <Button disabled={!lease || mutation.isPending || (browsable && !picked)}>
             {mutation.isPending ? <Spinner /> : null}创建会话
-          </button>
-          <button type="button" className="quiet" onClick={onClose}>
+          </Button>
+          <Button type="button" variant="outline" onClick={onClose}>
             取消
-          </button>
-        </div>
+          </Button>
+        </Actions>
       </form>
     </Modal>
   );
 }
 function EventLog({ events }: { events: RemoteEvent[] }) {
   return (
-    <div className="event-log">
+    <div className="mt-2 grid gap-0.5">
       {events.length ? (
         <>
-          <div className="event-log-label">最近 {events.length} 条事件 · 自动同步</div>
+          <div className="pb-1 text-xs text-caption">最近 {events.length} 条事件 · 自动同步</div>
           {[...events].reverse().map((event) => (
-            <details key={event.seq} className="event-row">
-              <summary>
-                <span className="event-time">
+            <details key={event.seq} className="group rounded-md">
+              <summary className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm select-none hover:bg-accent">
+                <span className="font-mono text-xs text-caption tabular-nums">
                   {new Date(event.createdAt).toLocaleTimeString('zh-CN', { hour12: false })}
                 </span>
-                <span>{event.kind}</span>
-                <code>#{event.seq}</code>
-                <ChevronDown size={13} />
+                <span className="min-w-0 flex-1 truncate">{event.kind}</span>
+                <code className="font-mono text-xs text-caption">#{event.seq}</code>
+                <ChevronDown
+                  size={12}
+                  className="text-caption transition-transform group-open:rotate-180"
+                />
               </summary>
-              <pre>{JSON.stringify(event.payload, null, 2)}</pre>
+              <pre className="mt-1 max-h-60 overflow-auto rounded-md bg-background p-2 font-mono text-xs leading-5 text-muted-foreground">
+                {JSON.stringify(event.payload, null, 2)}
+              </pre>
             </details>
           ))}
         </>
       ) : (
-        <Empty icon={<Radio size={25} />} title="等待实时事件">
+        <Empty icon={<Radio size={20} />} title="等待实时事件">
           Connector 连接后，运行状态和会话事件将显示在这里
         </Empty>
       )}
@@ -1746,45 +1876,70 @@ function Session({
       setQueueBusy(null);
     }
   }
+  const column = 'mx-auto w-full max-w-[760px]';
+  const pill =
+    'inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45';
+  const roundAction =
+    'swap inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-[background-color,opacity] hover:bg-primary-hover disabled:pointer-events-none disabled:opacity-30';
   return (
     <>
-      <div className="session-toolbar">
-        <strong>{summary ? sessionLabel(summary) : sessionId.slice(0, 20)}</strong>
-        <span>{summary?.cwd ?? String(asRecord(data.header).cwd ?? sessionId)}</span>
+      <div className="shrink-0 px-6 pb-1 max-md:px-3">
+        <div className={cn(column, 'flex min-w-0 items-baseline gap-3')}>
+          <strong className="truncate text-base font-medium">
+            {summary ? sessionLabel(summary) : sessionId.slice(0, 20)}
+          </strong>
+          <span className="min-w-0 truncate font-mono text-xs text-caption">
+            {summary?.cwd ?? String(asRecord(data.header).cwd ?? sessionId)}
+          </span>
+        </div>
       </div>
       <div
-        className="transcript"
+        className="relative min-h-0 flex-1 overflow-y-auto px-6 max-md:px-3"
         ref={scrollRef}
         onScroll={(e) => {
           const el = e.currentTarget;
           setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 100);
         }}
       >
-        {history.isPending && online ? (
-          <div className="subtle-loading">
-            <Spinner />
-          </div>
-        ) : null}
-        <Err error={history.error} />
-        {!history.isPending && !messages.length && !streamText ? (
-          <p className="transcript-empty">尚无消息</p>
-        ) : null}
-        {messages.map(({ event, message }) =>
-          message!.role === '运行时上下文' ? (
-            <details key={event.seq} className="runtime-record">
-              <summary>
-                运行时上下文 · {String(asRecord(asRecord(event.data).source).kind ?? '系统')}
-              </summary>
-              <pre>{message!.text}</pre>
-            </details>
-          ) : (
-            <article
-              key={event.seq}
-              className={`message ${message!.role === '你' ? 'user-message' : ''}`}
-            >
-              <div className="message-content">
-                <header>
-                  <strong>{message!.role}</strong>
+        <div className={cn(column, 'grid grid-cols-1 gap-7 pt-4 pb-6')}>
+          {history.isPending && online ? (
+            <div className="text-caption">
+              <Spinner />
+            </div>
+          ) : null}
+          <Err error={history.error} />
+          {!history.isPending && !messages.length && !streamText ? (
+            <p className="py-10 text-base text-caption">尚无消息，在下方描述任务开始。</p>
+          ) : null}
+          {messages.map(({ event, message }) =>
+            message!.role === '运行时上下文' ? (
+              <details key={event.seq} className="runtime-record group">
+                <summary className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5 text-sm text-caption select-none hover:bg-accent">
+                  <ChevronDown size={12} className="transition-transform group-open:rotate-180" />
+                  运行时上下文 · {String(asRecord(asRecord(event.data).source).kind ?? '系统')}
+                </summary>
+                <pre className="mt-2 max-h-72 overflow-auto rounded-xl bg-accent/70 p-3 font-mono text-xs leading-5 whitespace-pre-wrap text-muted-foreground">
+                  {message!.text}
+                </pre>
+              </details>
+            ) : message!.role === '你' ? (
+              <article key={event.seq} className="user-message grid justify-items-end gap-1">
+                <div className="message-text max-w-[85%] rounded-[20px] bg-accent px-4 py-2.5 text-md break-words whitespace-pre-wrap">
+                  {message!.text}
+                </div>
+                <time className="px-1 text-xs text-caption">
+                  {event.time
+                    ? new Date(event.time).toLocaleTimeString('zh-CN', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })
+                    : ''}
+                </time>
+              </article>
+            ) : (
+              <article key={event.seq} className="message grid gap-1.5">
+                <header className="flex items-center gap-2 text-xs text-caption">
+                  <strong className="font-medium text-muted-foreground">{message!.role}</strong>
                   <time>
                     {event.time
                       ? new Date(event.time).toLocaleTimeString('zh-CN', {
@@ -1794,338 +1949,395 @@ function Session({
                       : ''}
                   </time>
                 </header>
-                <div className="message-text">{message!.text}</div>
-              </div>
-            </article>
-          ),
-        )}
-        {streamText && (
-          <article className="message live-message">
-            <div className="message-content">
-              <header>
-                <strong>DSH</strong>
-                <span className="status-dot pulse" />
+                <div className="message-text text-md break-words whitespace-pre-wrap">
+                  {message!.text}
+                </div>
+              </article>
+            ),
+          )}
+          {streamText && (
+            <article className="message grid gap-1.5">
+              <header className="flex items-center gap-2 text-xs text-caption">
+                <strong className="font-medium text-muted-foreground">DSH</strong>
+                <span className="size-1.5 animate-pulse rounded-full bg-success" />
                 {stream?.incomplete ? <span>部分片段，结束后同步完整内容</span> : null}
               </header>
-              <div className="message-text">
+              <div className="message-text text-md break-words whitespace-pre-wrap">
                 {streamText}
-                <span className="cursor" />
+                <span className="ml-0.5 inline-block h-[1.1em] w-[2px] translate-y-[3px] animate-pulse bg-foreground" />
               </div>
-            </div>
-          </article>
-        )}
-      </div>
-      {!autoScroll && (
-        <button className="scroll-latest" onClick={() => setAutoScroll(true)}>
-          <ArrowDown size={14} />
-          最新消息
-        </button>
-      )}
-      {queued.length > 0 && (
-        <div className="queue-list">
-          <h4>队列 {queued.length}</h4>
-          {queued.map((item, index) => (
-            <div key={String(asRecord(item).id ?? index)}>
-              <p>{contentText(asRecord(item).content)}</p>
-              <button
-                className="icon-button"
-                title="编辑队列项"
-                aria-label="编辑队列项"
-                disabled={!canWrite || !!queueBusy}
-                onClick={() => setQueueEdit({ item, text: contentText(asRecord(item).content) })}
-              >
-                <Pencil size={14} />
-              </button>
-              <button
-                className="icon-button"
-                title="转为 steer"
-                aria-label="转为 steer"
-                disabled={!canWrite || !!queueBusy}
-                onClick={() => void changeQueue(item, 'steer')}
-              >
-                <Zap size={14} />
-              </button>
-              <button
-                className="icon-button"
-                title="移除队列项"
-                aria-label="移除队列项"
-                disabled={!canWrite || !!queueBusy}
-                onClick={() => void changeQueue(item, 'remove')}
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
+            </article>
+          )}
         </div>
-      )}
-      <div className="approval-dock">
-        {pending.size > 0 &&
-          [...pending.values()].map((approval) => (
-            <div className="approval-card swap" key={String(approval.approvalId)}>
-              <strong className="approval-title">等待你的审批</strong>
-              <h4>{String(approval.toolName ?? '工具调用')}</h4>
-              <p>{String(approval.reason ?? '请核对本次操作后决定是否允许')}</p>
-              {toolCallForApproval(approval, wireEvents) ? (
-                <div className="approval-arguments">
-                  <label>本次工具调用参数 · {String(approval.callId)}</label>
-                  <pre>{toolCallForApproval(approval, wireEvents)!.arguments}</pre>
-                </div>
-              ) : (
-                <p className="approval-missing">
-                  {approval.callId
-                    ? '尚未载入匹配此调用的参数，请刷新历史后再允许。现在仍可拒绝。'
-                    : '此审批没有关联工具调用参数，请根据上方操作说明决定。'}
-                </p>
-              )}
-              <div className="approval-actions">
-                <button
-                  className="primary small"
-                  disabled={
-                    !canWrite ||
-                    !!approvalBusy ||
-                    (!!approval.callId && !toolCallForApproval(approval, wireEvents))
-                  }
-                  onClick={() => void approve(approval, 'allowed-once')}
-                >
-                  {approvalBusy === approval.approvalId ? <Spinner /> : null}允许本次
-                </button>
-                <button
-                  className="quiet"
-                  disabled={!canWrite || !!approvalBusy}
-                  onClick={() => void approve(approval, 'rejected')}
-                >
-                  拒绝
-                </button>
-              </div>
-            </div>
-          ))}
       </div>
-      <div className="composer-area">
-        <Err error={send.error || cancel.error || resume.error || uploadError || actionError} />
-        {invalidReferences && (
-          <div className="error" role="alert">
-            引用已过期或不可用，请在仓库页面重新验证，或移除对应引用
-          </div>
+      <div className="relative shrink-0 px-6 pb-5 max-md:px-3 max-md:pb-3">
+        {!autoScroll && (
+          <button
+            className="swap absolute -top-11 left-1/2 inline-flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full border-[0.8px] border-border bg-card px-3 text-sm text-muted-foreground shadow-soft hover:text-foreground"
+            onClick={() => setAutoScroll(true)}
+          >
+            <ArrowDown size={14} />
+            最新消息
+          </button>
         )}
-        <form
-          className={`composer ${!canWrite ? 'disabled' : ''}`}
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (
-              canWrite &&
-              !invalidReferences &&
-              (prompt.trim() || files.length) &&
-              !send.isPending
-            )
-              send.mutate();
-          }}
-        >
-          {referenceIds.length > 0 && (
-            <div className="repository-chips">
-              {referenceIds.map((referenceId, index) => (
-                <span className="reference-chip" key={referenceId}>
-                  <Layers3 size={13} />
-                  <span>
-                    {attachedReferences[index]?.fullName ?? '不可用引用'}
-                    {attachedReferences[index]?.localState !== 'verified' ? ' · 待验证' : ''}
-                  </span>
-                  <button
-                    type="button"
-                    aria-label={`移除仓库 ${attachedReferences[index]?.fullName ?? referenceId}`}
+        <div className={cn(column, 'grid grid-cols-1 gap-2.5')}>
+          {queued.length > 0 && (
+            <div className="queue-list grid gap-1 rounded-2xl bg-accent/70 p-2">
+              <h4 className="px-2 pt-0.5 text-xs font-medium text-caption">队列 {queued.length}</h4>
+              {queued.map((item, index) => (
+                <div
+                  key={String(asRecord(item).id ?? index)}
+                  className="flex items-center gap-1 rounded-lg bg-card py-1 pr-1 pl-3 shadow-soft"
+                >
+                  <p className="min-w-0 flex-1 truncate text-base">
+                    {contentText(asRecord(item).content)}
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    title="编辑队列项"
+                    aria-label="编辑队列项"
+                    disabled={!canWrite || !!queueBusy}
                     onClick={() =>
-                      setReferenceIds((old) => old.filter((value) => value !== referenceId))
+                      setQueueEdit({ item, text: contentText(asRecord(item).content) })
                     }
                   >
-                    <X size={13} />
-                  </button>
-                </span>
-              ))}
-              <button type="button" className="text-button" onClick={() => setContextOpen(true)}>
-                预览引用上下文
-              </button>
-            </div>
-          )}
-          {files.length > 0 && (
-            <div className="attachment-list">
-              {files.map((file, index) => (
-                <span key={index}>
-                  <FileText size={13} />
-                  {file.name}
-                  <button
-                    type="button"
-                    aria-label={`移除 ${file.name}`}
-                    onClick={() => setFiles((old) => old.filter((_, i) => i !== index))}
+                    <Pencil size={14} />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    title="转为 steer"
+                    aria-label="转为 steer"
+                    disabled={!canWrite || !!queueBusy}
+                    onClick={() => void changeQueue(item, 'steer')}
                   >
-                    <X size={13} />
-                  </button>
-                </span>
+                    <Zap size={14} />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    title="移除队列项"
+                    aria-label="移除队列项"
+                    disabled={!canWrite || !!queueBusy}
+                    onClick={() => void changeQueue(item, 'remove')}
+                  >
+                    <Trash2 size={14} />
+                  </Button>
+                </div>
               ))}
             </div>
           )}
-          <textarea
-            maxLength={100000}
-            aria-label="消息"
-            placeholder={
-              canWrite
-                ? '描述任务，或告诉 DSH 下一步该怎么做'
-                : operations.operations.some((op) => op.instanceId === id)
-                  ? '原命令尚待确认'
-                  : online
-                    ? '只读 · 控制此实例后可发送'
-                    : '实例离线'
-            }
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            disabled={!canWrite || send.isPending}
-            rows={3}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                if (
-                  canWrite &&
-                  !invalidReferences &&
-                  (prompt.trim() || files.length) &&
-                  !send.isPending
-                )
-                  send.mutate();
-              }
+          {pending.size > 0 &&
+            [...pending.values()].map((approval) => (
+              <div
+                className="approval-card swap grid gap-2 rounded-2xl bg-warning-surface p-4"
+                key={String(approval.approvalId)}
+              >
+                <strong className="flex items-center gap-1.5 text-sm font-medium text-warning">
+                  <Warn size={14} />
+                  等待你的审批
+                </strong>
+                <h4 className="text-md font-medium">{String(approval.toolName ?? '工具调用')}</h4>
+                <p className="text-base text-muted-foreground">
+                  {String(approval.reason ?? '请核对本次操作后决定是否允许')}
+                </p>
+                {toolCallForApproval(approval, wireEvents) ? (
+                  <div className="grid gap-1">
+                    <span className="text-xs text-caption">
+                      本次工具调用参数 · {String(approval.callId)}
+                    </span>
+                    <pre className="max-h-56 overflow-auto rounded-xl bg-background/70 p-3 font-mono text-xs leading-5 whitespace-pre-wrap">
+                      {toolCallForApproval(approval, wireEvents)!.arguments}
+                    </pre>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {approval.callId
+                      ? '尚未载入匹配此调用的参数，请刷新历史后再允许。现在仍可拒绝。'
+                      : '此审批没有关联工具调用参数，请根据上方操作说明决定。'}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button
+                    size="sm"
+                    disabled={
+                      !canWrite ||
+                      !!approvalBusy ||
+                      (!!approval.callId && !toolCallForApproval(approval, wireEvents))
+                    }
+                    onClick={() => void approve(approval, 'allowed-once')}
+                  >
+                    {approvalBusy === approval.approvalId ? <Spinner /> : null}允许本次
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!canWrite || !!approvalBusy}
+                    onClick={() => void approve(approval, 'rejected')}
+                  >
+                    拒绝
+                  </Button>
+                </div>
+              </div>
+            ))}
+          <Err error={send.error || cancel.error || resume.error || uploadError || actionError} />
+          {invalidReferences && (
+            <Err error="引用已过期或不可用，请在仓库页面重新验证，或移除对应引用" />
+          )}
+          <form
+            className={cn(
+              'grid grid-cols-1 gap-1 rounded-[22px] border-[0.8px] border-border bg-card px-3 pt-2.5 pb-2 shadow-soft transition-[box-shadow,border-color] duration-150 focus-within:border-ring',
+              !canWrite && 'bg-accent/40 shadow-none',
+            )}
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (
+                canWrite &&
+                !invalidReferences &&
+                (prompt.trim() || files.length) &&
+                !send.isPending
+              )
+                send.mutate();
             }}
-          />
-          <div className="composer-tools">
-            <div>
-              <button
-                type="button"
-                className="icon-button"
-                aria-label="添加附件"
-                title="添加附件，最大 4 MiB"
-                disabled={!canWrite || uploading || send.isPending || files.length >= 4}
-                onClick={() => fileInput.current?.click()}
-              >
-                {uploading ? <Spinner /> : <Paperclip size={17} />}
-              </button>
-              <input
-                type="file"
-                hidden
-                ref={fileInput}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void upload(file);
-                  e.target.value = '';
-                }}
-              />
-              <select
-                className="reference-picker"
-                aria-label="添加仓库引用"
-                value=""
-                disabled={referenceIds.length >= 8}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  if (value)
-                    setReferenceIds((old) => (old.includes(value) ? old : [...old, value]));
-                }}
-              >
-                <option value="">引用仓库 ({referenceIds.length}/8)</option>
-                {references.data?.repositories
-                  .filter((row) => row.selected && !referenceIds.includes(row.id))
-                  .map((row) => (
-                    <option key={row.id} value={row.id} disabled={row.localState !== 'verified'}>
-                      {row.fullName}
-                      {row.localState !== 'verified' ? ' · 请先验证' : ''}
-                    </option>
-                  ))}
-              </select>
-              <button type="button" className="model-button" onClick={() => setModelOpen(true)}>
-                <Settings2 size={14} />
-                <span>{String(selection.model ?? '模型与配置')}</span>
-                <ChevronDown size={12} />
-              </button>
-            </div>
-            <div>
-              <select
-                className="mode-picker"
-                aria-label="消息模式"
-                value={mode}
-                onChange={(e) => setMode(e.target.value as 'queue' | 'steer')}
-                disabled={!canWrite}
-              >
-                <option value="queue">排队</option>
-                <option value="steer">下一步引导</option>
-              </select>
-              {running && !prompt.trim() && !files.length ? (
+          >
+            {referenceIds.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 px-1 pb-1">
+                {referenceIds.map((referenceId, index) => (
+                  <span
+                    className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full bg-accent pr-1 pl-2.5 text-sm"
+                    key={referenceId}
+                  >
+                    <Layers3 size={13} className="shrink-0 text-muted-foreground" />
+                    <span className="truncate">
+                      {attachedReferences[index]?.fullName ?? '不可用引用'}
+                      {attachedReferences[index]?.localState !== 'verified' ? ' · 待验证' : ''}
+                    </span>
+                    <button
+                      type="button"
+                      className="inline-flex size-5 items-center justify-center rounded-full text-caption hover:bg-accent-active hover:text-foreground"
+                      aria-label={`移除仓库 ${attachedReferences[index]?.fullName ?? referenceId}`}
+                      onClick={() =>
+                        setReferenceIds((old) => old.filter((value) => value !== referenceId))
+                      }
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+                <Button
+                  type="button"
+                  variant="link"
+                  className="text-sm"
+                  onClick={() => setContextOpen(true)}
+                >
+                  预览引用上下文
+                </Button>
+              </div>
+            )}
+            {files.length > 0 && (
+              <div className="attachment-list flex flex-wrap gap-1.5 px-1 pb-1">
+                {files.map((file, index) => (
+                  <span
+                    key={index}
+                    className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full bg-accent pr-1 pl-2.5 text-sm"
+                  >
+                    <FileText size={13} className="shrink-0 text-muted-foreground" />
+                    <span className="truncate">{file.name}</span>
+                    <button
+                      type="button"
+                      className="inline-flex size-5 items-center justify-center rounded-full text-caption hover:bg-accent-active hover:text-foreground"
+                      aria-label={`移除 ${file.name}`}
+                      onClick={() => setFiles((old) => old.filter((_, i) => i !== index))}
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <textarea
+              className="max-h-60 min-h-[52px] w-full resize-none bg-transparent px-1 text-md text-foreground outline-none placeholder:text-caption disabled:cursor-not-allowed"
+              maxLength={100000}
+              aria-label="消息"
+              placeholder={
+                canWrite
+                  ? '描述任务，或告诉 DSH 下一步该怎么做'
+                  : operations.operations.some((op) => op.instanceId === id)
+                    ? '原命令尚待确认'
+                    : online
+                      ? '只读 · 控制此实例后可发送'
+                      : '实例离线'
+              }
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              disabled={!canWrite || send.isPending}
+              rows={2}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  if (
+                    canWrite &&
+                    !invalidReferences &&
+                    (prompt.trim() || files.length) &&
+                    !send.isPending
+                  )
+                    send.mutate();
+                }
+              }}
+            />
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="rounded-full text-muted-foreground"
+                  aria-label="添加附件"
+                  title="添加附件，最大 4 MiB"
+                  disabled={!canWrite || uploading || send.isPending || files.length >= 4}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  {uploading ? <Spinner /> : <Attach size={16} />}
+                </Button>
+                <input
+                  type="file"
+                  hidden
+                  ref={fileInput}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void upload(file);
+                    e.target.value = '';
+                  }}
+                />
+                <select
+                  className={cn(
+                    pill,
+                    'max-w-[180px] min-w-0 shrink cursor-pointer appearance-none truncate bg-transparent outline-none',
+                  )}
+                  aria-label="添加仓库引用"
+                  value=""
+                  disabled={referenceIds.length >= 8}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value)
+                      setReferenceIds((old) => (old.includes(value) ? old : [...old, value]));
+                  }}
+                >
+                  <option value="">引用仓库 ({referenceIds.length}/8)</option>
+                  {references.data?.repositories
+                    .filter((row) => row.selected && !referenceIds.includes(row.id))
+                    .map((row) => (
+                      <option key={row.id} value={row.id} disabled={row.localState !== 'verified'}>
+                        {row.fullName}
+                        {row.localState !== 'verified' ? ' · 请先验证' : ''}
+                      </option>
+                    ))}
+                </select>
                 <button
                   type="button"
-                  key="stop"
-                  className="stop-button swap"
-                  aria-label="停止任务"
-                  title="停止任务"
-                  disabled={!canWrite || cancel.isPending}
-                  onClick={() => cancel.mutate()}
+                  className={cn(pill, 'model-button min-w-0 shrink')}
+                  onClick={() => setModelOpen(true)}
                 >
-                  {cancel.isPending ? <Spinner /> : <Square size={13} />}
+                  <Settings2 size={14} className="shrink-0" />
+                  <span className="truncate">{String(selection.model ?? '模型与配置')}</span>
+                  <ChevronDown size={12} className="shrink-0" />
                 </button>
-              ) : (
-                <button
-                  key="send"
-                  className="send-button swap"
-                  aria-label="发送消息"
-                  title="发送 · Ctrl / ⌘ + Enter"
-                  disabled={
-                    !canWrite ||
-                    invalidReferences ||
-                    send.isPending ||
-                    uploading ||
-                    (!prompt.trim() && !files.length)
-                  }
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <select
+                  className={cn(pill, 'cursor-pointer appearance-none bg-transparent outline-none')}
+                  aria-label="消息模式"
+                  value={mode}
+                  onChange={(e) => setMode(e.target.value as 'queue' | 'steer')}
+                  disabled={!canWrite}
                 >
-                  {send.isPending ? <Spinner /> : <Send size={17} />}
-                </button>
-              )}
+                  <option value="queue">排队</option>
+                  <option value="steer">下一步引导</option>
+                </select>
+                {running && !prompt.trim() && !files.length ? (
+                  <button
+                    type="button"
+                    key="stop"
+                    className={roundAction}
+                    aria-label="停止任务"
+                    title="停止任务"
+                    disabled={!canWrite || cancel.isPending}
+                    onClick={() => cancel.mutate()}
+                  >
+                    {cancel.isPending ? <Spinner /> : <Square size={12} />}
+                  </button>
+                ) : (
+                  <button
+                    key="send"
+                    className={roundAction}
+                    aria-label="发送消息"
+                    title="发送 · Ctrl / ⌘ + Enter"
+                    disabled={
+                      !canWrite ||
+                      invalidReferences ||
+                      send.isPending ||
+                      uploading ||
+                      (!prompt.trim() && !files.length)
+                    }
+                  >
+                    {send.isPending ? <Spinner /> : <Send size={16} />}
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        </form>
-        {data.agentAvailable === false && (
-          <div className="composer-footer">
-            <button
-              className="text-button"
-              disabled={!canWrite || resume.isPending}
-              onClick={() => resume.mutate()}
-            >
-              恢复运行环境
-            </button>
-          </div>
-        )}
+          </form>
+          {data.agentAvailable === false && (
+            <div className="px-1">
+              <Button
+                variant="link"
+                className="text-sm"
+                disabled={!canWrite || resume.isPending}
+                onClick={() => resume.mutate()}
+              >
+                恢复运行环境
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
       {contextOpen && (
         <Modal
           title="本条消息的仓库上下文"
           description="仅使用实例绑定的引用 ID，服务端再次检查已有工作树。此预览不包含仓库文件或访问令牌"
           onClose={() => setContextOpen(false)}
+          className="max-w-[560px]"
         >
-          {attachedReferences.map((row, index) => (
-            <div className="repository-row" key={referenceIds[index]}>
-              {row ? (
+          <div className="grid gap-3">
+            {attachedReferences.map((row, index) => (
+              <div className="grid gap-2 rounded-xl bg-accent/60 p-3" key={referenceIds[index]}>
+                {row ? (
+                  <>
+                    <strong className="text-base font-medium">{row.fullName}</strong>
+                    <pre className="max-h-48 overflow-auto rounded-lg bg-background p-2 font-mono text-xs leading-5 text-muted-foreground">
+                      {JSON.stringify(contextPreview(row), null, 2)}
+                    </pre>
+                  </>
+                ) : (
+                  <p className="text-base text-muted-foreground">此引用已不可用，请移除</p>
+                )}
                 <div>
-                  <strong>{row.fullName}</strong>
-                  <pre>{JSON.stringify(contextPreview(row), null, 2)}</pre>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      setReferenceIds((old) => old.filter((value) => value !== referenceIds[index]))
+                    }
+                  >
+                    移除引用
+                  </Button>
                 </div>
-              ) : (
-                <p>此引用已不可用，请移除</p>
-              )}
-              <button
-                className="quiet"
-                onClick={() =>
-                  setReferenceIds((old) => old.filter((value) => value !== referenceIds[index]))
-                }
-              >
-                移除引用
-              </button>
-            </div>
-          ))}
-          <div className="modal-actions">
-            <button className="primary" onClick={() => setContextOpen(false)}>
-              返回草稿
-            </button>
+              </div>
+            ))}
           </div>
+          <Actions>
+            <Button onClick={() => setContextOpen(false)}>返回草稿</Button>
+          </Actions>
         </Modal>
       )}
       {queueEdit && (
@@ -2135,33 +2347,30 @@ function Session({
           onClose={() => setQueueEdit(null)}
         >
           <form
+            className="grid gap-5"
             onSubmit={(e) => {
               e.preventDefault();
               void changeQueue(queueEdit.item, 'edit', queueEdit.text);
             }}
           >
-            <label>
-              队列消息
-              <textarea
+            <Field label="队列消息">
+              <Textarea
                 aria-label="队列消息"
                 rows={5}
                 maxLength={100000}
                 value={queueEdit.text}
                 onChange={(e) => setQueueEdit({ ...queueEdit, text: e.target.value })}
               />
-            </label>
+            </Field>
             <Err error={actionError} />
-            <div className="modal-actions">
-              <button type="button" className="quiet" onClick={() => setQueueEdit(null)}>
-                取消
-              </button>
-              <button
-                className="primary"
-                disabled={!canWrite || !!queueBusy || !queueEdit.text.trim()}
-              >
+            <Actions>
+              <Button disabled={!canWrite || !!queueBusy || !queueEdit.text.trim()}>
                 {queueBusy ? <Spinner /> : <Check size={16} />}保存队列消息
-              </button>
-            </div>
+              </Button>
+              <Button type="button" variant="outline" onClick={() => setQueueEdit(null)}>
+                取消
+              </Button>
+            </Actions>
           </form>
         </Modal>
       )}

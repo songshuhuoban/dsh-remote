@@ -8,6 +8,7 @@ import {
   queryCommand,
   runCommand,
 } from './api';
+import { Button } from '@/components/ui/button';
 
 export type Operation = {
   id: string;
@@ -239,38 +240,49 @@ export function RecoveryPanel({ instanceId }: { instanceId?: string }) {
   const operation = operations.find((op) => op.instanceId === instanceId);
   if (!operation) return null;
   return (
-    <section className="recovery-panel" role="status" aria-label="命令恢复">
-      <div>
-        <strong>{operation.state === 'pending' ? '正在等待主机确认' : '原命令结果尚未确认'}</strong>
-        <p>
-          {operation.action} · <code>{operation.id}</code>
-        </p>
-        <p>{operation.error ?? '可以停止等待或离开此页面。停止等待不会取消已提交的主机操作'}</p>
+    <section className="swap px-6 max-md:px-3" role="status" aria-label="命令恢复">
+      <div className="mx-auto flex max-w-[760px] flex-wrap items-center gap-3 rounded-xl bg-warning-surface px-4 py-3">
+        <div className="grid min-w-0 flex-1 gap-0.5">
+          <strong className="text-base font-medium">
+            {operation.state === 'pending' ? '正在等待主机确认' : '原命令结果尚未确认'}
+          </strong>
+          <p className="truncate text-sm text-muted-foreground">
+            {operation.action} · <code className="font-mono text-xs">{operation.id}</code>
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {operation.error ?? '可以停止等待或离开此页面。停止等待不会取消已提交的主机操作'}
+          </p>
+        </div>
+        {operation.state === 'pending' ? (
+          <Button size="sm" variant="outline" onClick={() => stop(operation.id)}>
+            停止等待
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={reading}
+            onClick={async () => {
+              setReading(true);
+              setError('');
+              try {
+                await reconcile(operation.id);
+              } catch (e) {
+                setError(errorText(e));
+              } finally {
+                setReading(false);
+              }
+            }}
+          >
+            {reading ? '正在查询…' : '查询原命令'}
+          </Button>
+        )}
+        {error && (
+          <p role="alert" className="w-full text-sm text-destructive">
+            {error}
+          </p>
+        )}
       </div>
-      {operation.state === 'pending' ? (
-        <button className="quiet" onClick={() => stop(operation.id)}>
-          停止等待
-        </button>
-      ) : (
-        <button
-          className="quiet"
-          disabled={reading}
-          onClick={async () => {
-            setReading(true);
-            setError('');
-            try {
-              await reconcile(operation.id);
-            } catch (e) {
-              setError(errorText(e));
-            } finally {
-              setReading(false);
-            }
-          }}
-        >
-          {reading ? '正在查询…' : '查询原命令'}
-        </button>
-      )}
-      {error && <p role="alert">{error}</p>}
     </section>
   );
 }

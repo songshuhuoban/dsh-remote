@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check } from './icons';
 import { asList, asRecord, runCommand } from './api';
-import { Modal, Spinner, Err } from './ui';
+import { Actions, Err, Field, Modal, NativeSelect, Spinner } from './ui';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 export function ModelSettings({
   instanceId,
   sessionId,
@@ -95,22 +97,22 @@ export function ModelSettings({
       onClose={onClose}
     >
       <form
+        className="grid gap-4"
         onSubmit={(e) => {
           e.preventDefault();
           mutation.mutate();
         }}
       >
         {settings.isPending && (
-          <div className="subtle-loading">
+          <div className="flex items-center gap-2 text-sm text-caption">
             <Spinner />
             读取模型目录…
           </div>
         )}
         <Err error={settings.error} />
-        <label>
-          提供商
+        <Field label="提供商">
           {groups.length ? (
-            <select
+            <NativeSelect
               aria-label="提供商"
               value={provider}
               onChange={(e) => {
@@ -128,9 +130,9 @@ export function ModelSettings({
                   {String(asRecord(g).name ?? asRecord(g).id)}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           ) : (
-            <input
+            <Input
               aria-label="提供商"
               required
               value={provider}
@@ -141,11 +143,10 @@ export function ModelSettings({
               placeholder="提供商标识"
             />
           )}
-        </label>
-        <label>
-          模型
+        </Field>
+        <Field label="模型">
           {models.length ? (
-            <select
+            <NativeSelect
               aria-label="模型"
               required
               value={model}
@@ -163,9 +164,9 @@ export function ModelSettings({
                   {String(asRecord(m).name ?? asRecord(m).id)}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           ) : (
-            <input
+            <Input
               aria-label="模型"
               required
               value={model}
@@ -176,11 +177,16 @@ export function ModelSettings({
               placeholder="模型标识"
             />
           )}
-        </label>
-        <label>
-          推理强度 <span className="optional">可选</span>
+        </Field>
+        <Field
+          label={
+            <span>
+              推理强度 <span className="font-normal text-caption">可选</span>
+            </span>
+          }
+        >
           {efforts.length ? (
-            <select
+            <NativeSelect
               aria-label="推理强度"
               value={effort}
               onChange={(e) => {
@@ -194,9 +200,9 @@ export function ModelSettings({
                   {String(asRecord(e).name ?? asRecord(e).id)}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           ) : (
-            <input
+            <Input
               aria-label="推理强度"
               value={effort}
               onChange={(e) => {
@@ -206,77 +212,90 @@ export function ModelSettings({
               placeholder="留空使用模型默认值"
             />
           )}
-        </label>
+        </Field>
         {asList(catalog, 'failures').map((f) => (
           <Err key={String(asRecord(f).id)} error={`${asRecord(f).name}: ${asRecord(f).message}`} />
         ))}
-        <details className="config-details">
-          <summary>权限与 Agent 预设</summary>
-          <p className="tiny">只显示主机允许远程选择的预设。Agent 预设仅能在首轮任务前更改</p>
-          <label>
-            权限预设
-            <select
-              aria-label="权限预设"
-              value={permission}
-              onChange={(e) => setPermission(e.target.value)}
-            >
-              <option value="">选择权限预设</option>
-              {asList(settings.data, 'allowedPermissionPresets').map((p) => (
-                <option key={String(p)} value={String(p)}>
-                  {String(p)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            className="quiet"
-            disabled={!canWrite || !permission || settingsMutation.isPending}
-            onClick={() => settingsMutation.mutate({ key: 'permissionPreset', value: permission })}
-          >
-            应用权限
-          </button>
-          <label>
-            Agent 预设
-            <select
-              aria-label="Agent 预设"
-              value={preset}
-              onChange={(e) => setPreset(e.target.value)}
-            >
-              <option value="">选择 Agent 预设</option>
-              {asList(settings.data, 'allowedAgentPresets').map((p) => (
-                <option key={String(p)} value={String(p)}>
-                  {String(p)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            className="quiet"
-            disabled={!canWrite || !preset || settingsMutation.isPending}
-            onClick={() => settingsMutation.mutate({ key: 'agentPreset', value: preset })}
-          >
-            应用预设
-          </button>
-          <Err error={settingsMutation.error} />
+        <details className="group rounded-xl bg-accent/60 px-3 py-2.5">
+          <summary className="cursor-pointer text-sm font-medium text-muted-foreground select-none">
+            权限与 Agent 预设
+          </summary>
+          <div className="mt-3 grid gap-3">
+            <p className="text-sm text-caption">
+              只显示主机允许远程选择的预设。Agent 预设仅能在首轮任务前更改
+            </p>
+            <div className="flex items-end gap-2">
+              <Field label="权限预设" className="flex-1">
+                <NativeSelect
+                  aria-label="权限预设"
+                  value={permission}
+                  onChange={(e) => setPermission(e.target.value)}
+                >
+                  <option value="">选择权限预设</option>
+                  {asList(settings.data, 'allowedPermissionPresets').map((p) => (
+                    <option key={String(p)} value={String(p)}>
+                      {String(p)}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10"
+                disabled={!canWrite || !permission || settingsMutation.isPending}
+                onClick={() =>
+                  settingsMutation.mutate({ key: 'permissionPreset', value: permission })
+                }
+              >
+                应用权限
+              </Button>
+            </div>
+            <div className="flex items-end gap-2">
+              <Field label="Agent 预设" className="flex-1">
+                <NativeSelect
+                  aria-label="Agent 预设"
+                  value={preset}
+                  onChange={(e) => setPreset(e.target.value)}
+                >
+                  <option value="">选择 Agent 预设</option>
+                  {asList(settings.data, 'allowedAgentPresets').map((p) => (
+                    <option key={String(p)} value={String(p)}>
+                      {String(p)}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10"
+                disabled={!canWrite || !preset || settingsMutation.isPending}
+                onClick={() => settingsMutation.mutate({ key: 'agentPreset', value: preset })}
+              >
+                应用预设
+              </Button>
+            </div>
+            <Err error={settingsMutation.error} />
+          </div>
         </details>
-        <details className="config-details">
-          <summary>查看实例配置快照</summary>
-          <pre>{JSON.stringify(asRecord(settings.data).projections ?? {}, null, 2)}</pre>
+        <details className="group rounded-xl bg-accent/60 px-3 py-2.5">
+          <summary className="cursor-pointer text-sm font-medium text-muted-foreground select-none">
+            查看实例配置快照
+          </summary>
+          <pre className="mt-2 max-h-60 overflow-auto rounded-lg bg-background p-2 font-mono text-xs leading-5 text-muted-foreground">
+            {JSON.stringify(asRecord(settings.data).projections ?? {}, null, 2)}
+          </pre>
         </details>
         <Err error={mutation.error} />
-        <div className="modal-actions">
-          <button className="quiet" type="button" onClick={onClose} disabled={mutation.isPending}>
-            取消
-          </button>
-          <button
-            className="primary"
-            disabled={!canWrite || mutation.isPending || !provider || !model}
-          >
+        <Actions>
+          <Button disabled={!canWrite || mutation.isPending || !provider || !model}>
             {mutation.isPending ? <Spinner /> : <Check size={16} />}应用配置
-          </button>
-        </div>
+          </Button>
+          <Button variant="outline" type="button" onClick={onClose} disabled={mutation.isPending}>
+            取消
+          </Button>
+        </Actions>
       </form>
     </Modal>
   );

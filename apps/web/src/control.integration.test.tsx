@@ -199,7 +199,10 @@ it('connecting takes free control, a takeover leaves this tab watching, and taki
   expect(prompt.getByText('另一台设备 正在控制')).toBeTruthy();
   fireEvent.click(prompt.getByRole('button', { name: '接管' }));
   expect(await screen.findByRole('heading', { name: '新建会话' })).toBeTruthy();
-  await waitFor(() => expect(screen.getByRole('button', { name: /控制中/ })).toBeTruthy());
+  // The page behind a modal dialog is hidden from assistive tech, so look past it on purpose.
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: /控制中/, hidden: true })).toBeTruthy(),
+  );
 
   // The host's allowed folder is offered and chosen; other folders are browsed, never typed.
   const dialog = within(screen.getByRole('dialog'));

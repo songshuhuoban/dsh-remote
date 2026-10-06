@@ -1,0 +1,159 @@
+/*
+ * DeepSeek Harness (DSH) theme for Tailwind + shadcn/ui.
+ *
+ * Every color, radius, shadow and font comes from DSH's own ui-theme sheets in ./vendor
+ * (DSH 0.2.1, MIT), so light and dark follow DSH exactly; dark is DSH's
+ * body[data-ds-dark-theme], driven by the console's 外观 setting. Values were checked
+ * against the running DSH web UI: 14/22 system type, 12px rows and buttons, near-black
+ * primary, 0.8px hairlines, 28px panels with DSH's panel elevation.
+ */
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import './vendor/base.css';
+@import './vendor/design-platform.css';
+@import './vendor/brand-font.css';
+@import './vendor/gradient-shadow-text.css';
+@import './vendor/corner-shape.css';
+
+@custom-variant dark (&:where([data-ds-dark-theme], [data-ds-dark-theme] *));
+
+/* DSH defines its tokens on body, so the shadcn names are defined there too. */
+body {
+  --background: var(--dsw-alias-bg-base);
+  --foreground: var(--dsw-alias-label-primary);
+  --card: var(--dsw-alias-bg-layer-2);
+  --card-foreground: var(--dsw-alias-label-primary);
+  --popover: var(--dsw-alias-bg-layer-2);
+  --popover-foreground: var(--dsw-alias-label-primary);
+  --primary: var(--dsw-alias-button-primary-fill);
+  --primary-hover: var(--dsw-alias-button-primary-hover);
+  --primary-foreground: var(--dsw-alias-bg-base);
+  --secondary: var(--dsw-alias-bg-layer-1);
+  --secondary-foreground: var(--dsw-alias-label-primary);
+  --muted: var(--dsw-alias-interactive-bg-hover);
+  --muted-foreground: var(--dsw-alias-label-secondary);
+  --caption: var(--dsw-alias-label-tertiary);
+  --accent: var(--dsw-alias-interactive-bg-hover);
+  --accent-active: var(--dsw-alias-interactive-bg-active);
+  --accent-foreground: var(--dsw-alias-label-primary);
+  --destructive: var(--dsw-alias-state-error-primary);
+  --success: var(--dsw-alias-state-success-primary);
+  --warning: var(--dsw-alias-state-warn-primary);
+  --warning-surface: var(--dsw-alias-state-warn-tertiary);
+  --link: var(--dsw-alias-link);
+  --border: var(--dsw-alias-border-l3);
+  --divider: var(--dsw-alias-border-l2);
+  --input: var(--dsw-alias-border-l3);
+  --ring: var(--dsw-alias-border-l4);
+  --overlay: var(--dsw-alias-bg-mask-1);
+  --sidebar: var(--dsw-static-neutral-bluish-50);
+  --sidebar-foreground: var(--dsw-alias-label-primary);
+  --sidebar-border: var(--dsw-alias-border-l3);
+  --field: var(--dsw-static-neutral-bluish-50);
+  --outline-fill: var(--dsw-alias-bg-base);
+}
+body[data-ds-dark-theme] {
+  --primary-foreground: var(--dsw-static-neutral-bluish-1000);
+  --sidebar: var(--dsw-static-neutral-bluish-900);
+  --field: var(--dsw-static-neutral-bluish-875);
+  --outline-fill: var(--dsw-static-neutral-bluish-750);
+}
+
+@theme inline {
+  --font-sans: var(--dsw-font-family);
+  --font-brand: var(--dsw-font-family-brand);
+  --font-mono: var(--ds-font-family-code);
+  --text-xs: 12px;
+  --text-xs--line-height: 18px;
+  --text-sm: 13px;
+  --text-sm--line-height: 20px;
+  --text-base: 14px;
+  --text-base--line-height: 22px;
+  --text-md: 16px;
+  --text-md--line-height: 28px;
+  --text-lg: 20px;
+  --text-lg--line-height: 28px;
+  --text-xl: 24px;
+  --text-xl--line-height: 32px;
+  --text-2xl: 28px;
+  --text-2xl--line-height: 36px;
+  --radius-xs: var(--dsw-radius-xs);
+  --radius-sm: var(--dsw-radius-sm);
+  --radius-md: 10px;
+  --radius-lg: var(--dsw-radius-md);
+  --radius-xl: var(--dsw-radius-lg);
+  --radius-2xl: var(--dsw-radius-xl);
+  --radius-3xl: var(--dsw-radius-panel);
+  --shadow-panel: var(--dsw-elevation-panel);
+  --shadow-soft: var(--dsw-elevation-soft);
+  --shadow-prominent: var(--dsw-elevation-prominent);
+  --ease-ds: var(--ds-ease-in-out);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-caption: var(--caption);
+  --color-accent: var(--accent);
+  --color-accent-active: var(--accent-active);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-warning-surface: var(--warning-surface);
+  --color-link: var(--link);
+  --color-border: var(--border);
+  --color-divider: var(--divider);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-overlay: var(--overlay);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-field: var(--field);
+  --color-outline-fill: var(--outline-fill);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--dsw-font-family);
+    font-size: 14px;
+    line-height: 22px;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: var(--dsw-alias-bg-document-selection);
+  }
+}
+
+@layer utilities {
+  /* State changes swap content in place with a short fade and lift (docs/design/minimal-ui.md). */
+  .swap {
+    animation: swap-in 180ms var(--ds-ease-in-out) both;
+  }
+  @keyframes swap-in {
+    from {
+      opacity: 0;
+      transform: translateY(2px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .swap {
+      animation: none;
+    }
+  }
+}

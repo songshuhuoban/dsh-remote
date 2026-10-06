@@ -8,6 +8,8 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Check, ChevronRight, CornerLeftUp, Folder } from 'lucide-react';
 import { asRecord, runCommand } from './api';
 import { Err, Spinner } from './ui';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 type Place = { name: string; path: string };
 type Listing = {
@@ -75,67 +77,81 @@ export function WorkspacePicker({
   if (browsing !== false) {
     const here = listing.data;
     return (
-      <div className="workspace-picker swap" key="browse">
-        <div className="picker-head">
-          <button
+      <div className="swap grid gap-2" key="browse">
+        <div className="flex min-w-0 items-center gap-2">
+          <Button
             type="button"
-            className="icon-button"
+            variant="ghost"
+            size="icon-sm"
             aria-label="返回目录列表"
             onClick={() => setBrowsing(false)}
           >
             <ArrowLeft size={16} />
-          </button>
-          <span className="picker-path">
+          </Button>
+          <span className="min-w-0 font-mono text-sm break-all text-muted-foreground">
             {here?.path ?? (anyWorkspace ? '此电脑' : '允许的目录')}
           </span>
         </div>
         {listing.isPending ? (
-          <div className="subtle-loading">
+          <div className="px-3 py-3 text-caption">
             <Spinner />
           </div>
         ) : (
-          <div className="picker-list" role="list" aria-label="文件夹">
+          <div
+            className="-mx-1 grid max-h-[300px] gap-0.5 overflow-y-auto px-1"
+            role="list"
+            aria-label="文件夹"
+          >
             {here?.path ? (
               <button
                 type="button"
-                className="picker-row"
+                className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-accent text-muted-foreground"
                 onClick={() => setBrowsing(here.parent ?? null)}
               >
                 <CornerLeftUp size={16} />
-                <span>上一级</span>
+                <span className="text-base">上一级</span>
               </button>
             ) : null}
             {here?.directories.map((folder) => (
               <button
                 type="button"
                 key={folder.path}
-                className="picker-row"
+                className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-accent"
                 onClick={() => setBrowsing(folder.path)}
               >
-                <Folder size={16} />
-                <span>
-                  <strong>{folder.name}</strong>
-                  {here.path ? null : <small>{folder.path}</small>}
+                <Folder size={16} className="shrink-0 text-link" />
+                <span className="grid min-w-0 flex-1">
+                  <strong className="truncate text-base font-normal">{folder.name}</strong>
+                  {here.path ? null : (
+                    <small className="truncate font-mono text-xs text-caption">{folder.path}</small>
+                  )}
                 </span>
-                <ChevronRight size={16} className="picker-enter" />
+                <ChevronRight size={16} className="shrink-0 text-caption" />
               </button>
             ))}
-            {here && !here.directories.length ? <p className="picker-note">没有子文件夹</p> : null}
-            {here?.truncated ? <p className="picker-note">只显示前 500 个文件夹</p> : null}
+            {here && !here.directories.length ? (
+              <p className="px-3 py-2 text-base text-caption">没有子文件夹</p>
+            ) : null}
+            {here?.truncated ? (
+              <p className="px-3 py-2 text-sm text-caption">只显示前 500 个文件夹</p>
+            ) : null}
           </div>
         )}
         <Err error={listing.error} />
         {here?.path ? (
-          <button
-            type="button"
-            className="quiet"
-            onClick={() => {
-              onChange(here.path!);
-              setBrowsing(false);
-            }}
-          >
-            使用此目录
-          </button>
+          <div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                onChange(here.path!);
+                setBrowsing(false);
+              }}
+            >
+              使用此目录
+            </Button>
+          </div>
         ) : null}
       </div>
     );
@@ -143,19 +159,23 @@ export function WorkspacePicker({
 
   const custom = value && !roots.some((root) => root.path === value) ? value : undefined;
   return (
-    <div className="workspace-picker swap" key="list">
-      <span className="field-label">工作目录</span>
+    <div className="swap grid gap-2" key="list">
+      <span className="text-sm font-medium text-muted-foreground">工作目录</span>
       {workspaces.isPending ? (
-        <div className="subtle-loading">
+        <div className="px-3 py-3 text-caption">
           <Spinner />
         </div>
       ) : !roots.length && !anyWorkspace ? (
-        <p className="picker-note">
+        <p className="rounded-xl bg-accent/70 px-3 py-2.5 text-base text-muted-foreground">
           这台实例还没有允许远程使用的目录。请在运行 DSH 的电脑上打开 插件 → DSH Remote
           添加工作目录，或开启「允许远程选择本机任意目录」。
         </p>
       ) : (
-        <div className="picker-list" role="radiogroup" aria-label="工作目录">
+        <div
+          className="-mx-1 grid max-h-[300px] gap-0.5 overflow-y-auto px-1"
+          role="radiogroup"
+          aria-label="工作目录"
+        >
           {[...(custom ? [{ name: lastSegment(custom), path: custom }] : []), ...roots].map(
             (place) => (
               <button
@@ -163,15 +183,20 @@ export function WorkspacePicker({
                 role="radio"
                 aria-checked={value === place.path}
                 key={place.path}
-                className="picker-row"
+                className={cn(
+                  'flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-accent',
+                  value === place.path && 'bg-accent-active hover:bg-accent-active',
+                )}
                 onClick={() => onChange(place.path)}
               >
-                <Folder size={16} />
-                <span>
-                  <strong>{place.name}</strong>
-                  <small>{place.path}</small>
+                <Folder size={16} className="shrink-0 text-link" />
+                <span className="grid min-w-0 flex-1">
+                  <strong className="truncate text-base font-medium">{place.name}</strong>
+                  <small className="truncate font-mono text-xs text-caption">{place.path}</small>
                 </span>
-                {value === place.path ? <Check size={16} className="picker-enter" /> : null}
+                {value === place.path ? (
+                  <Check size={16} className="shrink-0 text-foreground" />
+                ) : null}
               </button>
             ),
           )}
@@ -179,9 +204,16 @@ export function WorkspacePicker({
       )}
       <Err error={workspaces.error} />
       {roots.length || anyWorkspace ? (
-        <button type="button" className="text-button" onClick={() => setBrowsing(value ?? null)}>
-          {anyWorkspace ? '浏览其他目录' : '选择子目录'}
-        </button>
+        <div>
+          <Button
+            type="button"
+            variant="link"
+            className="text-sm"
+            onClick={() => setBrowsing(value ?? null)}
+          >
+            {anyWorkspace ? '浏览其他目录' : '选择子目录'}
+          </Button>
+        </div>
       ) : null}
     </div>
   );
