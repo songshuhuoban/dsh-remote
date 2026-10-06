@@ -13,10 +13,8 @@ test('actual DSH browser flow: takeover, history, prompt, file, model, queue, ap
   await page.getByRole('button', { name: '登录', exact: true }).click();
   await expect(page.getByRole('heading', { name: /Actual upstream source/ })).toBeVisible();
   await expect(page.locator('[data-stream="live"]')).toHaveCount(1);
-  // Other sessions remain visible. A read alone must not take control.
-  await expect(page.getByRole('button', { name: '接管', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '接管', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: '取消', exact: true }).click();
+  // Connecting asks before pushing the other controller off; declining only watches.
+  await page.getByRole('dialog').getByRole('button', { name: '仅查看', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: '接管', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: '接管', exact: true }).click();

@@ -103,9 +103,8 @@ it('registers through React, creates an offline instance, safely disables writes
   ).toBeGreaterThan(20);
   fireEvent.click(screen.getByRole('button', { name: '进入实例' }));
   expect(await screen.findByRole('heading', { name: 'DOM real relay' })).toBeTruthy();
-  expect((screen.getByRole('button', { name: '获取控制权' }) as HTMLButtonElement).disabled).toBe(
-    true,
-  );
+  // Nothing to control while the instance is offline.
+  expect(screen.queryByRole('button', { name: '开始控制' })).toBeNull();
   for (const element of screen.getAllByRole('button', { name: /新建会话/ }))
     expect((element as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: 'GitHub 仓库' }));

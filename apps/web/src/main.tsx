@@ -80,7 +80,13 @@ import { RepositoryPanel } from './repository-panel';
 import { getReferences, contextPreview, repositoryIdsForPrompt } from './repositories';
 import { readDraft, saveDraft } from './drafts';
 import { OperationsProvider, RecoveryPanel, useOperations } from './operations';
-import { PairInstance, PairingLanding, PairingPanel, requestPairing, type Pairing } from './pairing';
+import {
+  PairInstance,
+  PairingLanding,
+  PairingPanel,
+  requestPairing,
+  type Pairing,
+} from './pairing';
 import './styles.css';
 const THEME_KEY = 'dsh.appearance';
 const NEW_INSTANCE = '__new_instance__';
@@ -357,6 +363,8 @@ function Console({ identity }: { identity: Identity }) {
     [clock, setClock] = useState(Date.now()),
     [tab, setTab] = useState<'conversation' | 'repositories'>('conversation'),
     [writeSuspended, setWriteSuspended] = useState(false),
+    // Instances this tab only watches: control was declined, released or taken by another device.
+    [viewOnly, setViewOnly] = useState<Record<string, true>>({}),
     [theme, setTheme] = useState<'system' | 'light' | 'dark'>(() => {
       try {
         const saved = localStorage.getItem(THEME_KEY);
@@ -390,7 +398,10 @@ function Console({ identity }: { identity: Identity }) {
     if (!result) return;
     // A completed "Sign in with GitHub" lands here signed in; nothing to report.
     if (result === 'signed_in') {
-      void navigate({ search: { instance: search.instance, session: search.session }, replace: true });
+      void navigate({
+        search: { instance: search.instance, session: search.session },
+        replace: true,
+      });
       return;
     }
     setTab('repositories');
@@ -526,16 +537,46 @@ function Console({ identity }: { identity: Identity }) {
     },
     onSuccess: (target) => {
       void client.invalidateQueries({ queryKey: ['instances'] });
+      const next = afterControl.current;
+      afterControl.current = null;
       if (selectedInstance.current !== target) return;
       setWriteSuspended(false);
       setModal((current) => (current === 'takeover' ? null : current));
       setNotice('');
+      next?.();
     },
     onError: (error) => {
+      afterControl.current = null;
       if (selectedInstance.current === leaseRequestTarget.current) setNotice(errorText(error));
       void client.invalidateQueries({ queryKey: ['instances'] });
     },
   });
+  /** What to do once control is ours, e.g. open "新建会话" after a takeover. */
+  const afterControl = useRef<(() => void) | null>(null);
+  // Effects in the same commit must see a choice before React re-renders with it.
+  const viewOnlyNow = useRef(viewOnly);
+  viewOnlyNow.current = viewOnly;
+  const watchOnly = (instanceId: string | undefined, watching: boolean) => {
+    if (!instanceId) return;
+    const { [instanceId]: _, ...rest } = viewOnlyNow.current;
+    viewOnlyNow.current = watching ? { ...rest, [instanceId]: true } : rest;
+    setViewOnly(viewOnlyNow.current);
+  };
+  const takeControl = () => {
+    watchOnly(id, false);
+    if (occupied) setModal('takeover');
+    else leaseMutation.mutate({});
+  };
+  const declineTakeover = () => {
+    afterControl.current = null;
+    watchOnly(id, true);
+    setModal(null);
+  };
+  const startSession = () => {
+    if (holding) return setModal('session');
+    afterControl.current = () => setModal('session');
+    takeControl();
+  };
   const logout = useMutation({
     mutationFn: () => post('/api/auth/logout', {}),
     onSuccess: () => {
@@ -607,16 +648,47 @@ function Console({ identity }: { identity: Identity }) {
     const before = previousHolder.current;
     previousHolder.current = { id, holder: leaseHolder };
     // A device that logged in after this list loaded would otherwise show only as a raw ID.
-    if (leaseHolder && !controllers.data?.controllers.some((c) => c.id === leaseHolder))
-      void controllers.refetch();
+    const known = controllers.data?.controllers.some((c) => c.id === leaseHolder);
+    const names = leaseHolder && !known ? controllers.refetch() : undefined;
     if (
       before.id === id &&
       before.holder === identity.controller.id &&
       leaseHolder &&
       leaseHolder !== identity.controller.id
-    )
-      setNotice('控制权已被其他设备接管，当前为只读模式');
+    ) {
+      // Never take it straight back: two tabs would push each other off forever.
+      watchOnly(id, true);
+      const announce = (list?: Controller[]) =>
+        setNotice(
+          `${list?.find((c) => c.id === leaseHolder)?.name ?? '另一台设备'} 已接管控制，当前为只读`,
+        );
+      if (names) void names.then((result) => announce(result.data?.controllers));
+      else announce(controllers.data?.controllers);
+    }
   }, [id, leaseHolder]);
+  // Connecting takes control, as in remote-desktop clients: a free instance is controlled at once;
+  // one another device controls asks first whether to push that device off. Each lease state is
+  // handled once, and an instance the person chose to only watch is left alone. Declared after the
+  // takeover check above, so a device that was just pushed off never prompts to push back.
+  const autoControlled = useRef('');
+  useEffect(() => {
+    if (!id || !online || !streamLive || viewOnlyNow.current[id] || modal) return;
+    if (leaseMutation.isPending || lease?.controllerId === identity.controller.id) return;
+    const key = `${id}:${lease?.controllerId ?? ''}:${lease?.epoch ?? 0}`;
+    if (autoControlled.current === key) return;
+    autoControlled.current = key;
+    if (leaseActive(lease, Date.now())) setModal('takeover');
+    else leaseMutation.mutate({});
+  }, [
+    id,
+    online,
+    streamLive,
+    viewOnly,
+    modal,
+    lease?.controllerId,
+    lease?.epoch,
+    lease?.expiresAt,
+  ]);
   return (
     <div className="shell" data-stream={eventStream.state}>
       <aside className={`sidebar ${mobileMenu ? 'open' : ''}`}>
@@ -636,7 +708,9 @@ function Console({ identity }: { identity: Identity }) {
             aria-label="选择实例"
             value={id ?? ''}
             onChange={(e) =>
-              e.target.value === NEW_INSTANCE ? setModal('instance') : switchInstance(e.target.value)
+              e.target.value === NEW_INSTANCE
+                ? setModal('instance')
+                : switchInstance(e.target.value)
             }
           >
             <option value="" disabled>
@@ -662,16 +736,15 @@ function Console({ identity }: { identity: Identity }) {
         </button>
         <div className="section-label">
           <span>会话</span>
-          <button
-            className="icon-button"
-            aria-label="新建会话"
-            title={holding ? '新建会话' : '获取控制权后可新建会话'}
-            disabled={!online || !holding}
-            onClick={() => setModal('session')}
-          >
-            <Plus size={16} />
-          </button>
         </div>
+        <button
+          className="sidebar-link new-session"
+          disabled={!online || !streamLive || leaseMutation.isPending}
+          onClick={startSession}
+        >
+          <Plus size={15} />
+          新建会话
+        </button>
         <nav className="session-list" aria-label="会话列表">
           {sessions.isPending && online ? (
             <div className="subtle-loading">
@@ -750,51 +823,53 @@ function Console({ identity }: { identity: Identity }) {
                   {statusText}
                 </span>
               </button>
-              <div className="control">
-                {occupied && (
-                  <span className="control-note swap">{controllerName(lease?.controllerId)} 控制中</span>
-                )}
-                <button
-                  className={`control-button ${controlState}`}
-                  disabled={leaseMutation.isPending || !online || eventStream.state !== 'live'}
-                  title={
-                    holding
-                      ? `${Math.max(0, Math.ceil((new Date(lease!.expiresAt).getTime() - clock) / 1000))}s 后自动续期`
-                      : undefined
-                  }
-                  aria-label={holding ? '控制中，点击释放' : undefined}
-                  onClick={() =>
-                    holding
-                      ? leaseMutation.mutate({ release: true })
-                      : occupied
-                        ? setModal('takeover')
-                        : leaseMutation.mutate({})
-                  }
-                >
-                  {controlState === 'pending' ? (
-                    <span className="swap" key="pending">
-                      <Spinner />
-                      确认中
-                    </span>
-                  ) : controlState === 'held' ? (
-                    <span className="swap held" key="held">
-                      <span className="held-label">
-                        <Check size={14} />
-                        控制中
-                      </span>
-                      <span className="release-label">释放</span>
-                    </span>
-                  ) : controlState === 'occupied' ? (
-                    <span className="swap" key="occupied">
-                      接管
-                    </span>
-                  ) : (
-                    <span className="swap" key="acquire">
-                      获取控制权
+              {online && streamLive ? (
+                <div className="control">
+                  {occupied && (
+                    <span className="control-note swap">
+                      {controllerName(lease?.controllerId)} 控制中
                     </span>
                   )}
-                </button>
-              </div>
+                  <button
+                    className={`control-button ${controlState}`}
+                    disabled={leaseMutation.isPending}
+                    title={
+                      holding
+                        ? `${Math.max(0, Math.ceil((new Date(lease!.expiresAt).getTime() - clock) / 1000))}s 后自动续期`
+                        : undefined
+                    }
+                    aria-label={holding ? '控制中，点击释放' : undefined}
+                    onClick={() => {
+                      if (!holding) return takeControl();
+                      watchOnly(id, true);
+                      leaseMutation.mutate({ release: true });
+                    }}
+                  >
+                    {controlState === 'pending' ? (
+                      <span className="swap" key="pending">
+                        <Spinner />
+                        确认中
+                      </span>
+                    ) : controlState === 'held' ? (
+                      <span className="swap held" key="held">
+                        <span className="held-label">
+                          <Check size={14} />
+                          控制中
+                        </span>
+                        <span className="release-label">释放</span>
+                      </span>
+                    ) : controlState === 'occupied' ? (
+                      <span className="swap" key="occupied">
+                        接管
+                      </span>
+                    ) : (
+                      <span className="swap" key="acquire">
+                        开始控制
+                      </span>
+                    )}
+                  </button>
+                </div>
+              ) : null}
             </>
           ) : null}
         </header>
@@ -837,7 +912,17 @@ function Console({ identity }: { identity: Identity }) {
                 />
               ) : online ? (
                 <div className="empty-state swap">
-                  <h2>{holding ? '选择或新建会话' : '选择一个会话'}</h2>
+                  <h2>选择或新建会话</h2>
+                  <div className="actions">
+                    <button
+                      className="primary"
+                      disabled={!streamLive || leaseMutation.isPending}
+                      onClick={startSession}
+                    >
+                      <Plus size={16} />
+                      新建会话
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="empty-state swap">
@@ -964,9 +1049,9 @@ function Console({ identity }: { identity: Identity }) {
       )}
       {modal === 'takeover' && (
         <Modal
-          title="接管控制权？"
-          description={`${controllerName(lease?.controllerId)} 将变为只读。正在运行的任务不会被取消。`}
-          onClose={() => setModal(null)}
+          title={`${controllerName(lease?.controllerId)} 正在控制`}
+          description="接管后对方会被挤下线，只能查看；正在运行的任务不会中断。"
+          onClose={declineTakeover}
         >
           <div className="modal-actions">
             <button
@@ -976,8 +1061,8 @@ function Console({ identity }: { identity: Identity }) {
             >
               {leaseMutation.isPending ? <Spinner /> : null}接管
             </button>
-            <button className="quiet" onClick={() => setModal(null)}>
-              取消
+            <button className="quiet" onClick={declineTakeover}>
+              仅查看
             </button>
           </div>
         </Modal>
@@ -1055,7 +1140,10 @@ function Devices({
       ) : (
         <div className="device-list">
           {controllers.map((c) => (
-            <div key={c.id} className={c.active === false || revoked.includes(c.id) ? 'inactive' : ''}>
+            <div
+              key={c.id}
+              className={c.active === false || revoked.includes(c.id) ? 'inactive' : ''}
+            >
               <span>
                 <strong>{c.name}</strong>
                 {c.id === currentId && <small>当前设备</small>}
@@ -1855,7 +1943,7 @@ function Session({
                 : operations.operations.some((op) => op.instanceId === id)
                   ? '原命令尚待确认'
                   : online
-                    ? '只读 · 获取控制权后可发送'
+                    ? '只读 · 控制此实例后可发送'
                     : '实例离线'
             }
             value={prompt}

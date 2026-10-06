@@ -79,9 +79,9 @@ it('actual DSH: login, explicit takeover, create session, prompt, durable respon
   fireEvent.click(screen.getByRole('button', { name: '登录' }));
   expect(await screen.findByRole('heading', { name: /Actual upstream source/ })).toBeTruthy();
   await waitFor(() => expect(document.querySelector('[data-stream="live"]')).not.toBeNull());
-  fireEvent.click(await screen.findByRole('button', { name: '接管' }));
-  expect(screen.getByRole('dialog')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: '取消' }));
+  // Connecting asks before pushing the other controller off; declining only watches.
+  const prompt = await screen.findByRole('dialog');
+  fireEvent.click(within(prompt).getByRole('button', { name: '仅查看' }));
   expect(screen.queryByRole('dialog')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: '接管' }));
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '接管' }));
@@ -194,7 +194,8 @@ it('actual DSH: login, explicit takeover, create session, prompt, durable respon
     timeout: 10000,
   });
   fireEvent.click(screen.getByRole('button', { name: /控制中，点击释放/ }));
-  expect(await screen.findByRole('button', { name: '获取控制权' })).toBeTruthy();
+  // Released on purpose: the console must not take it straight back.
+  expect(await screen.findByRole('button', { name: '开始控制' })).toBeTruthy();
   expect((screen.getByRole('button', { name: '发送消息' }) as HTMLButtonElement).disabled).toBe(
     true,
   );

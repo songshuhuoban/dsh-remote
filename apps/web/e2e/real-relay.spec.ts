@@ -39,7 +39,7 @@ test('real relay: registration, offline instance, interrupted modal, reload, dev
   await expect(page.getByLabel('Connector 令牌')).not.toHaveValue('');
   await page.getByRole('button', { name: '进入实例', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Development workstation' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '获取控制权', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '开始控制', exact: true })).toHaveCount(0);
   for (const button of await page.getByRole('button', { name: /新建会话/ }).all())
     await expect(button).toBeDisabled();
   await page.screenshot({
