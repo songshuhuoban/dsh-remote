@@ -88,7 +88,13 @@ it('actual DSH: login, explicit takeover, create session, prompt, durable respon
   expect(await screen.findByRole('button', { name: /控制中/ })).toBeTruthy();
   const newButtons = screen.getAllByRole('button', { name: /新建会话/ });
   fireEvent.click(newButtons.at(-1)!);
-  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '创建会话' }));
+  // The Host's allowed folder is listed and preselected before a session can be created.
+  const create = within(screen.getByRole('dialog')).getByRole('button', {
+    name: '创建会话',
+  }) as HTMLButtonElement;
+  await waitFor(() => expect(create.disabled).toBe(false), { timeout: 10000 });
+  expect(within(screen.getByRole('dialog')).getByRole('radio', { checked: true })).toBeTruthy();
+  fireEvent.click(create);
   const input = await screen.findByRole('textbox', { name: '消息' });
   const referenceSelect = screen.getByLabelText('添加仓库引用') as HTMLSelectElement;
   await waitFor(() =>
