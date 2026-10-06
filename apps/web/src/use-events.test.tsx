@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { act, cleanup, renderHook } from '@testing-library/react';
+import { act, cleanup, render } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
 import { useEvents } from './use-events';
 
 /** Just enough of a browser WebSocket for the event stream; the test plays the relay. */
@@ -56,12 +55,19 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
+/** Renders the hook in a console-like tree; `result.current` is its latest value. */
 function mount() {
-  const client = new QueryClient();
-  const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  const result = { current: undefined as unknown as ReturnType<typeof useEvents> };
+  function Probe() {
+    result.current = useEvents(true);
+    return null;
+  }
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <Probe />
+    </QueryClientProvider>,
   );
-  return renderHook(() => useEvents(true), { wrapper });
+  return { result };
 }
 
 it('lets go of the stream after three hidden minutes and reconnects once shown', () => {
