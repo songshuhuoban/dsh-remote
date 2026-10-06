@@ -1285,11 +1285,19 @@ select.theme-picker {
   color: var(--dsw-alias-label-secondary);
   font-size: 13px;
 }
+.copy-field {
+  margin-top: 12px;
+}
+.copy-field > span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
 .pairing-link {
   display: flex;
   gap: 4px;
   align-items: center;
-  margin-top: 12px;
   padding-right: 4px;
   border-radius: var(--dsw-radius-sm);
   background: var(--dsw-specific-selector);
@@ -1328,6 +1336,10 @@ select.theme-picker {
   margin: 8px 0 24px;
   color: var(--dsw-alias-label-secondary);
   font-size: 15px;
+}
+.pairing-landing-plugin {
+  max-width: 480px;
+  margin-bottom: 24px;
 }
 
 /* Sign in: the form is centered as a block; everything inside it stays left-aligned. */

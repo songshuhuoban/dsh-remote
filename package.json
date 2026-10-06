@@ -16,6 +16,8 @@
     "build:web": "bun run --cwd apps/web build",
     "test:ui": "bun run --cwd apps/web test:browser",
     "build:plugin": "bun run --cwd packages/dsh-plugin build",
+    "pack:plugin": "bun scripts/pack-plugin.ts",
+    "build:deploy": "bun run build:web && bun run pack:plugin",
     "test:plugin": "bun test packages/dsh-plugin/tests packages/connector/tests",
     "test:runtime": "LIVE_PROVIDER_E2E=0 bun run packages/dsh-plugin/tests/runtime-smoke.ts",
     "test:web": "bun run --cwd apps/web test",

@@ -1010,7 +1010,7 @@ export function createRelayCore(
           }
           throw new HttpError(404, 'NOT_FOUND', 'Route not found');
         }
-        if (platform.staticFile && req.method === 'GET') {
+        if (platform.staticFile && (req.method === 'GET' || req.method === 'HEAD')) {
           const file = platform.staticFile(path);
           if (file) return file;
         }

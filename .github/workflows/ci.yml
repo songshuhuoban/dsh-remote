@@ -104,7 +104,7 @@ jobs:
       - run: npm install --global pnpm@11.7.0
       - run: bun install --frozen-lockfile
       - run: bash packages/dsh-plugin/scripts/bootstrap-upstream.sh
-      - run: bun run build:plugin && bun run build:web
+      - run: bun run build:deploy
       - run: bun run test:runtime
       - run: bun run test:topology
       - run: bun run test:web:runtime

@@ -141,9 +141,20 @@ export class RelayObject extends DurableObject<Env> {
   }
 }
 
+/** A missing plugin file must fail as such, not as the console page DSH's pnpm cannot unpack. */
+async function pluginAsset(request: Request, env: Env): Promise<Response> {
+  const response = await env.ASSETS.fetch(request);
+  if (!response.headers.get('content-type')?.startsWith('text/html')) return response;
+  return Response.json(
+    { error: { code: 'NOT_FOUND', message: 'No such plugin file; see /plugin/manifest.json' } },
+    { status: 404 },
+  );
+}
+
 export default {
   async fetch(request, env) {
     const { pathname } = new URL(request.url);
+    if (pathname.startsWith('/plugin/')) return pluginAsset(request, env);
     if (!RELAY_PATHS.test(pathname)) return env.ASSETS.fetch(request);
     return env.RELAY.get(env.RELAY.idFromName('relay')).fetch(request);
   },

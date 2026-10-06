@@ -30,6 +30,12 @@ test('real relay: registration, offline instance, interrupted modal, reload, dev
   await page.getByRole('button', { name: '创建实例', exact: true }).click();
   await expect(page.getByRole('heading', { name: '连接 Development workstation' })).toBeVisible();
   await expect(page.getByLabel('配对链接', { exact: true })).toHaveValue(/\/pair\/[0-9A-Z]{4}-[0-9A-Z]{4}$/);
+  // `build:deploy` packs the plugin next to the console; the relay serves that exact build.
+  const pluginUrl = await page.getByLabel('插件地址', { exact: true }).inputValue();
+  expect(pluginUrl).toMatch(/\/plugin\/dsh-remote-plugin-\d+\.\d+\.\d+-[0-9a-f]{8}\.tgz$/);
+  const tarball = await page.request.get(pluginUrl);
+  expect(tarball.ok()).toBe(true);
+  expect((await tarball.body()).subarray(0, 2)).toEqual(Buffer.from([0x1f, 0x8b]));
   await expect(page.getByLabel('Connector 令牌')).not.toHaveValue('');
   await page.getByRole('button', { name: '进入实例', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Development workstation' })).toBeVisible();

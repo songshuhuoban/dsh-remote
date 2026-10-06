@@ -4,12 +4,13 @@
   "main": "worker.ts",
   "compatibility_date": "2026-10-01",
   "compatibility_flags": ["nodejs_compat"],
-  // The web console is served as static assets; only relay paths reach the Worker.
+  // The web console is served as static assets; only relay paths reach the Worker, plus
+  // /plugin/* so a missing plugin file is a 404 rather than the console page.
   "assets": {
     "directory": "../../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/ws/*", "/health", "/github/*"]
+    "run_worker_first": ["/api/*", "/ws/*", "/health", "/github/*", "/plugin/*"]
   },
   "durable_objects": {
     "bindings": [{ "name": "RELAY", "class_name": "RelayObject" }]

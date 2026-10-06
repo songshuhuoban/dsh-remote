@@ -47,7 +47,10 @@ function staticFiles(dir: string) {
         { error: { code: 'PATH_DENIED', message: 'Invalid path' } },
         { status: 403 },
       );
-    const selected = existsSync(file) && !path.endsWith('/') ? file : join(root, 'index.html');
+    const found = existsSync(file) && !path.endsWith('/');
+    // Plugin downloads never fall back to the console page; see scripts/pack-plugin.ts.
+    if (!found && path.startsWith('/plugin/')) return null;
+    const selected = found ? file : join(root, 'index.html');
     return existsSync(selected) ? new Response(Bun.file(selected)) : null;
   };
 }

@@ -6,7 +6,7 @@ A Cordis plugin that connects a DSH computer to a DSH Remote relay, so the web c
 
 ## Install and pair
 
-1. In DSH, open **Plugins → Add plugin** and paste the release tarball URL, for example `https://github.com/songshuhuoban/dsh-remote/releases/download/dsh-plugin-v0.2.0/dsh-remote-plugin-0.2.0.tgz`. Enable it. (DSH `0.2.1-alpha.1` may fail to reload a newly enabled plugin live on Windows; restart DSH once if its page does not appear.)
+1. In DSH, open **Plugins → Add plugin** and paste the plugin address your relay serves, `https://<relay>/plugin/dsh-remote-plugin-<version>-<hash>.tgz`. The console's pairing dialog shows the exact address with a copy button, and `https://<relay>/plugin/manifest.json` names the current file. Each relay deploy ships the plugin build it was made with, so the two always match. Enable it. (DSH `0.2.1-alpha.1` may fail to reload a newly enabled plugin live on Windows; restart DSH once if its page does not appear.)
 2. In the relay console, choose **连接新实例** (or **配对** on an offline instance) and copy the pairing link. It works once and expires after 10 minutes.
 3. On the plugin's page in DSH, paste the link and choose **配对**. The status turns to **已连接**.
 4. Add the workspace folders remote devices may use. Sessions outside them are invisible and cannot be created remotely.
@@ -39,7 +39,9 @@ bun run --cwd packages/dsh-plugin build   # dist/index.js, dist/connector.js, di
 cd packages/dsh-plugin && npm pack        # installable tarball
 ```
 
-`@deepseek-ai/cordis` and `@deepseek-ai/schemastery` are peer dependencies resolved to DSH's own copies. The browser half (`dist/client.js`) is a single script in DSH's client-module format; it relies only on `react` from the page. Tagging `dsh-plugin-v<version>` publishes the tarball as a GitHub release (`.github/workflows/release-plugin.yml`).
+`@deepseek-ai/cordis` and `@deepseek-ai/schemastery` are peer dependencies resolved to DSH's own copies. The browser half (`dist/client.js`) is a single script in DSH's client-module format; it relies only on `react` from the page.
+
+Distribution: `bun run build:deploy` (which `cf:deploy` runs) packs the plugin into `apps/web/dist/plugin/` as `dsh-remote-plugin-<version>-<hash>.tgz` plus `manifest.json`, so every relay serves its own matching build as a static file. pnpm pins a tarball URL to its integrity, so the name carries a hash of the (reproducible) tarball: an address never changes content, and any plugin change gets a new one. Still bump `version` for user-visible changes. Tagging `dsh-plugin-v<version>` additionally publishes the tarball as a GitHub release (`.github/workflows/release-plugin.yml`).
 
 ## Behavior limits
 

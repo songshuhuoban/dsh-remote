@@ -52,12 +52,16 @@ With all five present, `/health` reports `githubSignIn: true` and the sign-in pa
 
 ```sh
 bun install --frozen-lockfile
-bun run build:web
 cd apps/server
 bunx wrangler login
 bun run cf:typecheck
-bun run cf:deploy
+bun run cf:deploy   # runs build:deploy: the web console plus the packed DSH plugin
 ```
+
+`build:deploy` places the plugin build at `/plugin/dsh-remote-plugin-<version>-<hash>.tgz` with a
+`/plugin/manifest.json` the console reads for its install link. They are static assets; the Worker
+only checks that a requested plugin file exists (a stale URL gets a 404 instead of the console
+page) and never wakes the Durable Object.
 
 Local Workers runtime: `bun run --cwd apps/server cf:dev -- --var REGISTRATION:enabled`.
 

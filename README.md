@@ -45,7 +45,7 @@ Never expose the development listener directly to the internet. Production opera
 
 ## Connect a DSH instance
 
-Install the DSH Remote plugin from DSH's **Plugins** page, then pair it: create an instance in the console, copy its one-time pairing link, and paste it on the plugin's page in DSH. The plugin stores the issued credential in DSH's credential store and runs the connector with DSH's own runtime; workspace folders that remote devices may use are chosen on the same page. Details, headless configuration and storage locations are in the [plugin README](packages/dsh-plugin/README.md).
+Install the DSH Remote plugin from DSH's **Plugins** page by pasting the plugin address the relay serves (`https://<relay>/plugin/dsh-remote-plugin-<version>-<hash>.tgz`), then pair it: create an instance in the console, copy its one-time pairing link, and paste it on the plugin's page in DSH. The console's pairing dialog shows both, each with a copy button. The plugin stores the issued credential in DSH's credential store and runs the connector with DSH's own runtime; workspace folders that remote devices may use are chosen on the same page. Details, headless configuration and storage locations are in the [plugin README](packages/dsh-plugin/README.md).
 
 The connector makes an outbound WebSocket connection and opens no network listener. Model-provider keys remain on the DSH host and are excluded from the connector's environment.
 
